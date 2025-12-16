@@ -1,55 +1,71 @@
-import { supabase } from '../lib/supabase';
-import { WeeklySchedule, AnalysisResponse } from '../types';
 
-// Helper to generate a consistent ID for this device if no Auth is present
-const getDeviceId = () => {
-  let id = localStorage.getItem('rafeeq_device_id');
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem('rafeeq_device_id', id);
-  }
-  return id;
+import { supabase } from '../lib/supabase';
+import { WeeklySchedule, AnalysisResponse, UserProfile } from '../types';
+
+// Helper to create a user-specific key
+// UPDATED: We now use the username directly as the key to allow fetching data from DB based on name login.
+// We remove the Device ID dependency to enable cross-device access via username.
+const getUserKey = (username: string) => `user_${username.trim().toLowerCase()}`;
+
+// --- USER PROFILE OPERATIONS ---
+export const saveUserProfile = (profile: UserProfile): void => {
+    localStorage.setItem(`rafeeq_user_${profile.name}`, JSON.stringify(profile));
+    localStorage.setItem('rafeeq_current_user_name', profile.name);
 };
 
-const USER_ID = getDeviceId();
+export const getLastUser = (): UserProfile | null => {
+    const name = localStorage.getItem('rafeeq_current_user_name');
+    if (!name) return null;
+    const profile = localStorage.getItem(`rafeeq_user_${name}`);
+    return profile ? JSON.parse(profile) : null;
+};
+
+export const logoutUser = () => {
+    localStorage.removeItem('rafeeq_current_user_name');
+};
 
 // --- SCHEDULE OPERATIONS ---
 
-export const getSchedule = async (): Promise<WeeklySchedule | null> => {
-  try {
-    if (supabase) {
+export const getSchedule = async (username: string): Promise<WeeklySchedule | null> => {
+  const userKey = getUserKey(username);
+  
+  // 1. Try Supabase first (The Source of Truth)
+  if (supabase) {
+    try {
       const { data, error } = await supabase
         .from('schedules')
         .select('data')
-        .eq('user_id', USER_ID)
+        .eq('user_id', userKey)
         .single();
       
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "Row not found"
-        console.warn('Supabase fetch error:', error);
-        return null; // Fallback to local
+      if (data) {
+        // Update local cache if data found online
+        localStorage.setItem(`rafeeq_schedule_${username}`, JSON.stringify(data.data));
+        return data.data as WeeklySchedule;
       }
-      
-      if (data) return data.data as WeeklySchedule;
+    } catch (e) {
+      console.warn('Supabase fetch failed, falling back to local.', e);
     }
-  } catch (e) {
-    console.warn('Supabase connection failed, using local storage.');
   }
 
-  // Fallback to LocalStorage
-  const local = localStorage.getItem('rafeeq_schedule');
+  // 2. Fallback to LocalStorage
+  const local = localStorage.getItem(`rafeeq_schedule_${username}`);
   return local ? JSON.parse(local) : null;
 };
 
-export const saveSchedule = async (schedule: WeeklySchedule): Promise<void> => {
-  // Always save to local as backup/cache
-  localStorage.setItem('rafeeq_schedule', JSON.stringify(schedule));
+export const saveSchedule = async (username: string, schedule: WeeklySchedule): Promise<void> => {
+  const userKey = getUserKey(username);
+  
+  // 1. Save to Local
+  localStorage.setItem(`rafeeq_schedule_${username}`, JSON.stringify(schedule));
 
+  // 2. Save to Supabase
   if (supabase) {
     try {
       await supabase
         .from('schedules')
         .upsert({ 
-          user_id: USER_ID, 
+          user_id: userKey, 
           data: schedule,
           updated_at: new Date().toISOString()
         }, { onConflict: 'user_id' });
@@ -66,57 +82,62 @@ export interface DailyEntry {
   analysis: AnalysisResponse | null;
 }
 
-export const getDailyEntry = async (dateKey: string = new Date().toISOString().split('T')[0]): Promise<DailyEntry | null> => {
-  // Try Supabase first
+export const getDailyEntry = async (username: string, dateKey: string = new Date().toISOString().split('T')[0]): Promise<DailyEntry | null> => {
+  const userKey = getUserKey(username);
+
+  // 1. Try Supabase first
   if (supabase) {
     try {
       const { data, error } = await supabase
         .from('daily_entries')
         .select('reflection, analysis')
-        .eq('user_id', USER_ID)
+        .eq('user_id', userKey)
         .eq('date', dateKey)
         .single();
       
       if (data) {
+        // Cache locally
+        localStorage.setItem(`rafeeq_reflection_${username}`, data.reflection || '');
+        if (data.analysis) {
+             localStorage.setItem(`rafeeq_analysis_${username}`, JSON.stringify(data.analysis));
+        }
         return {
             reflection: data.reflection || '',
             analysis: data.analysis
         };
       }
     } catch (e) {
-      console.warn('Supabase entry fetch failed');
+      console.warn('Supabase entry fetch failed', e);
     }
   }
 
-  // Fallback to LocalStorage
-  // We check if the locally stored analysis matches today's date context?
-  // Since the original app used simple keys, we'll try to migrate or just read them.
-  // For robustness, let's read the specific keys the app uses:
-  const reflection = localStorage.getItem('rafeeq_reflection') || '';
-  const analysisRaw = localStorage.getItem('rafeeq_analysis');
+  // 2. Fallback to LocalStorage
+  const reflection = localStorage.getItem(`rafeeq_reflection_${username}`) || '';
+  const analysisRaw = localStorage.getItem(`rafeeq_analysis_${username}`);
   const analysis = analysisRaw ? JSON.parse(analysisRaw) : null;
   
   return { reflection, analysis };
 };
 
-export const saveDailyEntry = async (reflection: string, analysis: AnalysisResponse | null): Promise<void> => {
+export const saveDailyEntry = async (username: string, reflection: string, analysis: AnalysisResponse | null): Promise<void> => {
+  const userKey = getUserKey(username);
   const dateKey = new Date().toISOString().split('T')[0];
   
-  // Local Save
-  localStorage.setItem('rafeeq_reflection', reflection);
+  // 1. Local Save
+  localStorage.setItem(`rafeeq_reflection_${username}`, reflection);
   if (analysis) {
-    localStorage.setItem('rafeeq_analysis', JSON.stringify(analysis));
+    localStorage.setItem(`rafeeq_analysis_${username}`, JSON.stringify(analysis));
   } else {
-    localStorage.removeItem('rafeeq_analysis');
+    localStorage.removeItem(`rafeeq_analysis_${username}`);
   }
 
-  // Supabase Save
+  // 2. Supabase Save
   if (supabase) {
     try {
       await supabase
         .from('daily_entries')
         .upsert({
-          user_id: USER_ID,
+          user_id: userKey,
           date: dateKey,
           reflection: reflection,
           analysis: analysis
@@ -126,20 +147,3 @@ export const saveDailyEntry = async (reflection: string, analysis: AnalysisRespo
     }
   }
 };
-
-export const clearDailyEntry = async (): Promise<void> => {
-    const dateKey = new Date().toISOString().split('T')[0];
-    
-    localStorage.removeItem('rafeeq_reflection');
-    localStorage.removeItem('rafeeq_analysis');
-
-    if (supabase) {
-        // We might not delete the row, just clear the content, or delete it.
-        // Let's delete for cleanliness
-        await supabase
-            .from('daily_entries')
-            .delete()
-            .eq('user_id', USER_ID)
-            .eq('date', dateKey);
-    }
-}

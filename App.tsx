@@ -1,13 +1,15 @@
+
 import React, { useState, useEffect } from 'react';
-import { WeeklySchedule, AnalysisResponse } from './types';
+import { WeeklySchedule, AnalysisResponse, UserProfile, GradeLevel } from './types';
 import ScheduleManager from './components/ScheduleManager';
 import AnalysisDisplay from './components/AnalysisDisplay';
 import Dashboard from './components/Dashboard';
 import ResourcesLibrary from './components/ResourcesLibrary';
+import LoginScreen from './components/LoginScreen';
 import { analyzeDayAndPlan } from './services/geminiService';
 import * as storage from './services/storage';
 import { supabase } from './lib/supabase';
-import { Sparkles, LayoutDashboard, Calendar, PenTool, BookOpen, Settings, Cloud, CloudOff, Menu, X, Loader2, Send } from 'lucide-react';
+import { Sparkles, LayoutDashboard, Calendar, PenTool, BookOpen, Settings, Cloud, CloudOff, Menu, X, Loader2, Send, LogOut, ShieldAlert } from 'lucide-react';
 
 const INITIAL_SCHEDULE: WeeklySchedule = {
   "السبت": ["رياضيات (جبر)", "فيزياء"],
@@ -23,6 +25,7 @@ type View = 'dashboard' | 'daily' | 'report' | 'planner' | 'resources' | 'settin
 
 function App() {
   // --- STATE ---
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
@@ -34,47 +37,82 @@ function App() {
   const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // --- INITIAL LOAD ---
+  // --- AUTH CHECK ---
+  useEffect(() => {
+    const checkUser = async () => {
+        const savedUser = storage.getLastUser();
+        if (savedUser) {
+            setCurrentUser(savedUser);
+        }
+        setInitializing(false);
+    };
+    checkUser();
+  }, []);
+
+  // --- DATA LOADING ---
   useEffect(() => {
     const loadData = async () => {
-      setInitializing(true);
+      if (!currentUser) return;
+
       try {
         const [savedSchedule, savedEntry] = await Promise.all([
-          storage.getSchedule(),
-          storage.getDailyEntry()
+          storage.getSchedule(currentUser.name),
+          storage.getDailyEntry(currentUser.name)
         ]);
         
-        if (savedSchedule) setSchedule(savedSchedule);
+        if (savedSchedule) {
+            setSchedule(savedSchedule);
+        } else {
+            setSchedule(INITIAL_SCHEDULE);
+        }
+
         if (savedEntry) {
           setDailyReflection(savedEntry.reflection);
           setAnalysis(savedEntry.analysis);
+        } else {
+            setDailyReflection('');
+            setAnalysis(null);
         }
       } catch (e) {
-        console.error("Error loading initial data", e);
-      } finally {
-        setInitializing(false);
+        console.error("Error loading user data", e);
       }
     };
-    loadData();
-  }, []);
+    
+    if (currentUser) {
+        loadData();
+    }
+  }, [currentUser]);
 
   // --- PERSISTENCE ---
   useEffect(() => {
-    if (!initializing) {
-      storage.saveSchedule(schedule).catch(console.error);
+    if (currentUser && !initializing) {
+      storage.saveSchedule(currentUser.name, schedule).catch(console.error);
     }
-  }, [schedule, initializing]);
+  }, [schedule, currentUser, initializing]);
 
   useEffect(() => {
-    if (!initializing) {
+    if (currentUser && !initializing) {
         const handler = setTimeout(() => {
-            storage.saveDailyEntry(dailyReflection, analysis);
+            storage.saveDailyEntry(currentUser.name, dailyReflection, analysis);
         }, 1000);
         return () => clearTimeout(handler);
     }
-  }, [dailyReflection, analysis, initializing]);
+  }, [dailyReflection, analysis, currentUser, initializing]);
 
   // --- LOGIC ---
+  const handleLogin = (profile: UserProfile) => {
+      storage.saveUserProfile(profile);
+      setCurrentUser(profile);
+  };
+
+  const handleLogout = () => {
+      storage.logoutUser();
+      setCurrentUser(null);
+      setSchedule(INITIAL_SCHEDULE);
+      setDailyReflection('');
+      setAnalysis(null);
+  };
+
   const getNextDayName = () => {
     const date = new Date();
     date.setDate(date.getDate() + 1);
@@ -82,15 +120,15 @@ function App() {
   };
 
   const handleAnalyze = async () => {
-    if (!dailyReflection.trim()) return;
+    if (!dailyReflection.trim() || !currentUser) return;
     
     setLoading(true);
     setError(null);
     
     try {
-      const result = await analyzeDayAndPlan(dailyReflection, schedule, getNextDayName());
+      const result = await analyzeDayAndPlan(dailyReflection, schedule, getNextDayName(), currentUser.grade);
       setAnalysis(result);
-      await storage.saveDailyEntry(dailyReflection, result);
+      await storage.saveDailyEntry(currentUser.name, dailyReflection, result);
       setCurrentView('report');
     } catch (err: any) {
       setError(err.message || "حدث خطأ أثناء التواصل مع النظام.");
@@ -105,6 +143,10 @@ function App() {
         <Loader2 className="w-12 h-12 animate-spin" />
       </div>
     );
+  }
+
+  if (!currentUser) {
+      return <LoginScreen onLogin={handleLogin} />;
   }
 
   // --- NAVIGATION CONFIG ---
@@ -124,12 +166,13 @@ function App() {
       <aside className={`fixed inset-y-0 right-0 z-50 w-72 bg-midnight/80 backdrop-blur-xl border-l border-white/5 transform transition-transform duration-500 lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="p-8 flex items-center justify-between">
             <div className="flex items-center gap-3 group cursor-pointer">
-                <div className="w-10 h-10 bg-gradient-to-br from-gold-500 to-gold-700 rounded-xl flex items-center justify-center shadow-lg shadow-gold-500/20 group-hover:scale-110 transition-transform duration-300">
-                    <Sparkles className="w-6 h-6 text-white" />
+                <div className="w-12 h-12 bg-gradient-to-br from-gold-500/10 to-gold-700/10 rounded-xl flex items-center justify-center border border-gold-500/20 shadow-lg shadow-gold-500/10 group-hover:scale-110 transition-transform duration-300">
+                    <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
                 </div>
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-white">رفيق</h1>
-                    <span className="text-gold-500 text-xs font-medium tracking-widest uppercase">الملاح الواعي</span>
+                    <span className="text-gold-500 text-[10px] font-medium tracking-widest uppercase block">الملاح الواعي</span>
+                    <span className="text-slate-500 text-[10px] block mt-1 truncate max-w-[100px]">{currentUser.name}</span>
                 </div>
             </div>
             <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden text-slate-400 hover:text-white transition-colors">
@@ -137,7 +180,7 @@ function App() {
             </button>
         </div>
 
-        <nav className="px-6 space-y-2 mt-4">
+        <nav className="px-6 space-y-2 mt-2">
             {NAV_ITEMS.map(item => (
                 <button
                     key={item.id}
@@ -154,8 +197,8 @@ function App() {
             ))}
         </nav>
 
-        <div className="absolute bottom-0 w-full p-6 border-t border-white/5">
-             <div className="flex items-center gap-2 justify-center text-xs text-slate-500 bg-black/40 py-2 rounded-lg border border-white/5">
+        <div className="absolute bottom-0 w-full p-6 border-t border-white/5 space-y-4">
+             <div className="flex items-center gap-2 justify-center text-xs text-slate-600 bg-black/40 py-2 rounded-lg border border-white/5">
                 {supabase ? <Cloud className="w-3 h-3 text-gold-500" /> : <CloudOff className="w-3 h-3" />}
                 {supabase ? 'متصل سحابياً' : 'تخزين محلي'}
             </div>
@@ -167,8 +210,8 @@ function App() {
         {/* Mobile Header */}
         <header className="lg:hidden p-4 flex items-center justify-between bg-midnight/80 backdrop-blur border-b border-white/5 sticky top-0 z-40">
             <div className="flex items-center gap-2">
-                 <div className="w-8 h-8 bg-gold-600 rounded-lg flex items-center justify-center">
-                    <Sparkles className="w-4 h-4 text-white" />
+                 <div className="w-8 h-8 rounded-lg flex items-center justify-center">
+                    <img src="/logo.png" alt="Logo" className="w-6 h-6 object-contain" />
                 </div>
                 <h1 className="text-lg font-bold">رفيق</h1>
             </div>
@@ -260,7 +303,28 @@ function App() {
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-gold-500 to-transparent opacity-30 group-hover:opacity-100 transition-opacity"></div>
                     <Settings className="w-16 h-16 mx-auto mb-6 text-slate-700 group-hover:text-gold-500 transition-colors duration-500" />
                     <h3 className="text-2xl font-bold text-slate-300 mb-2">الإعدادات الشخصية</h3>
-                    <p className="text-slate-500">قريباً ستتمكن من تخصيص شخصية المساعد وتفضيلات الآيات.</p>
+                     <div className="space-y-4 text-slate-400 text-sm mb-8">
+                        <div className="bg-black/30 p-4 rounded-xl border border-white/5">
+                            <p className="mb-1 uppercase text-xs font-bold text-slate-600">الاسم المسجل</p>
+                            <span className="text-gold-400 text-lg font-bold">{currentUser.name}</span>
+                        </div>
+                        <div className="bg-black/30 p-4 rounded-xl border border-white/5">
+                            <p className="mb-1 uppercase text-xs font-bold text-slate-600">المرحلة الدراسية</p>
+                            <span className="text-gold-400 text-lg font-bold">{currentUser.grade}</span>
+                        </div>
+                    </div>
+                    
+                    <button 
+                        onClick={handleLogout}
+                        className="w-full bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-500/30 font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group"
+                    >
+                        <LogOut className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+                        تسجيل الخروج وحذف البيانات المحلية
+                    </button>
+                    <p className="mt-4 text-xs text-slate-600">
+                        <ShieldAlert className="w-3 h-3 inline ml-1" />
+                        سيتم الاحتفاظ ببياناتك في السحابة بناءً على اسمك.
+                    </p>
                     </div>
             )}
         </main>
