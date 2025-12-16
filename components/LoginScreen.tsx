@@ -36,7 +36,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             <div className="text-center mb-10">
                 <div className="w-24 h-24 bg-gradient-to-br from-gold-500/20 to-gold-900/20 rounded-2xl mx-auto mb-6 flex items-center justify-center border border-gold-500/30 shadow-[0_0_30px_rgba(234,179,8,0.2)]">
                    {/* Logo Image */}
-                   <img src="/logo.png" alt="Rafeeq Logo" className="w-16 h-16 object-contain drop-shadow-lg" />
+                   <img src="https://drive.google.com/file/d/12PzJFM5bBWKDkB5OgTkw5qzfC-ZpmHUb/view?usp=sharing" alt="Rafeeq Logo" className="w-16 h-16 object-contain drop-shadow-lg" />
                 </div>
                 <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-gold-200 to-gold-600 mb-2">
                     مرحباً بك في رفيق
