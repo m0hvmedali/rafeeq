@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { AnalysisResponse } from '../types';
 import { Quote, Activity, BookOpen, Clock, Zap, ShieldCheck, CheckCircle2, Globe, ExternalLink, Search, Sparkles } from 'lucide-react';
@@ -85,48 +86,52 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ data }) => {
                     </div>
                 </article>
 
-                {/* Web Search Findings Section */}
+                {/* Web Search Findings Section (Enhanced Grounding UI) */}
                 {data.webAnalysis && (
                     <div className="glass-panel rounded-[30px] p-8 border border-blue-500/20 relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500 opacity-50"></div>
                         
                         <h3 className="text-lg font-bold text-blue-400 mb-6 flex items-center gap-2">
                             <Globe className="w-5 h-5" />
-                            رؤى الويب والتحليل العميق
+                            رؤى الويب (Google Search Grounding)
                         </h3>
                         
                         <div className="grid md:grid-cols-2 gap-6 mb-6">
                             <div className="bg-blue-900/10 p-5 rounded-2xl border border-blue-500/10">
                                 <h4 className="text-blue-300 font-bold text-sm mb-2 flex items-center gap-2">
-                                    <Search className="w-4 h-4" /> السبب الجذري المحتمل
+                                    <Search className="w-4 h-4" /> السبب الجذري (بحث)
                                 </h4>
                                 <p className="text-slate-300 text-sm leading-relaxed">{data.webAnalysis.rootCause}</p>
                             </div>
                             <div className="bg-emerald-900/10 p-5 rounded-2xl border border-emerald-500/10">
                                 <h4 className="text-emerald-300 font-bold text-sm mb-2 flex items-center gap-2">
-                                    <CheckCircle2 className="w-4 h-4" /> العلاج المقترح
+                                    <CheckCircle2 className="w-4 h-4" /> علاج مقترح
                                 </h4>
                                 <p className="text-slate-300 text-sm leading-relaxed">{data.webAnalysis.suggestedRemedy}</p>
                             </div>
                         </div>
 
                         {data.webAnalysis.sources && data.webAnalysis.sources.length > 0 && (
-                            <div>
-                                <h4 className="text-xs uppercase tracking-wider text-slate-500 font-bold mb-3">المصادر المستخدمة</h4>
-                                <div className="space-y-2">
+                            <div className="mt-4">
+                                <h4 className="text-xs uppercase tracking-wider text-slate-500 font-bold mb-3 border-b border-white/5 pb-2">نتائج البحث ذات الصلة</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     {data.webAnalysis.sources.map((source, idx) => (
                                         <a 
                                             key={idx} 
                                             href={source.url} 
                                             target="_blank" 
                                             rel="noopener noreferrer"
-                                            className="block bg-white/5 hover:bg-white/10 p-3 rounded-xl transition-all group border border-transparent hover:border-blue-500/30"
+                                            className="flex flex-col p-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-blue-500/30 transition-all group relative overflow-hidden"
                                         >
-                                            <div className="flex justify-between items-start">
-                                                <span className="font-bold text-slate-300 text-sm group-hover:text-blue-300 transition-colors">{source.title}</span>
-                                                <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-blue-400" />
+                                            <div className="flex items-center gap-2 mb-2">
+                                                 <div className="p-1.5 bg-blue-500/10 rounded-full text-blue-400">
+                                                    <Globe className="w-3 h-3" />
+                                                 </div>
+                                                 <span className="font-bold text-slate-200 text-xs truncate max-w-[200px]">{new URL(source.url).hostname.replace('www.', '')}</span>
                                             </div>
-                                            {source.snippet && <p className="text-xs text-slate-500 mt-1 line-clamp-1">{source.snippet}</p>}
+                                            <span className="font-bold text-blue-400 text-sm group-hover:underline mb-1 line-clamp-1">{source.title}</span>
+                                            {source.snippet && <p className="text-[10px] text-slate-500 line-clamp-2 leading-relaxed">{source.snippet}</p>}
+                                            <ExternalLink className="absolute top-3 left-3 w-3 h-3 text-slate-600 group-hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                                         </a>
                                     ))}
                                 </div>

@@ -1,40 +1,53 @@
+
 import React, { useState, useEffect } from 'react';
-import { AnalysisResponse } from '../types';
-import { Activity, Battery, Moon, Brain, ChevronLeft, Sparkles, Lightbulb, Quote } from 'lucide-react';
+import { AnalysisResponse, MotivationalMessage } from '../types';
+import { getFreshInspiration } from '../services/geminiService';
+import { Activity, Battery, Moon, Brain, ChevronLeft, Sparkles, Lightbulb, Quote, RefreshCw } from 'lucide-react';
 
 interface DashboardProps {
     lastAnalysis: AnalysisResponse | null;
     onNavigate: (view: string) => void;
 }
 
-const STATIC_INSPIRATIONS = [
-    { text: "أحب الأعمال إلى الله أدومها وإن قل.", source: "حديث شريف", category: "religious" },
-    { text: "وأن ليس للإنسان إلا ما سعى، وأن سعيه سوف يرى.", source: "سورة النجم", category: "religious" },
-    { text: "استعن بالله ولا تعجز.", source: "حديث شريف", category: "religious" },
-    { text: "إن مع العسر يسرا.", source: "سورة الشرح", category: "religious" },
-    { text: "الدماغ يعمل بفعالية أكبر في جلسات قصيرة ومكثفة (تقنية بومودورو).", source: "علم النفس المعرفي", category: "scientific" },
-    { text: "النوم ليس مضيعة للوقت، بل هو الوقت الذي يتم فيه تثبيت المعلومات في الذاكرة طويلة المدى.", source: "علوم الأعصاب", category: "scientific" },
-    { text: "لا يكلف الله نفساً إلا وسعها.", source: "سورة البقرة", category: "religious" },
-    { text: "قليل مستمر خير من كثير منقطع.", source: "حكمة عربية", category: "wisdom" },
-];
-
 const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate }) => {
     const balance = lastAnalysis?.balanceScore || 75;
     const stress = lastAnalysis?.summary.stressLevel || 'low';
     
-    // Determine the message to show:
-    // If we have a fresh web-sourced motivational message from the last analysis, use it.
-    // Otherwise, fallback to a random static one.
-    const [displayMessage, setDisplayMessage] = useState<any>(STATIC_INSPIRATIONS[0]);
+    // State for the dynamic daily quote
+    const [inspiration, setInspiration] = useState<MotivationalMessage | null>(null);
+    const [loadingQuote, setLoadingQuote] = useState(true);
 
+    // Fetch fresh inspiration on component mount (every reload/dashboard visit)
     useEffect(() => {
-        if (lastAnalysis?.motivationalMessage) {
-            setDisplayMessage(lastAnalysis.motivationalMessage);
-        } else {
-            const randomIndex = Math.floor(Math.random() * STATIC_INSPIRATIONS.length);
-            setDisplayMessage(STATIC_INSPIRATIONS[randomIndex]);
-        }
-    }, [lastAnalysis]);
+        const fetchQuote = async () => {
+            setLoadingQuote(true);
+            try {
+                // Determine if we should use the last analysis message or fetch a new one.
+                // Since the user requested "Every time the user reloads... a NEW sentence",
+                // we prioritize fetching a fresh one over the stored analysis message,
+                // unless the analysis was JUST done (which we can't easily track here without timestamp).
+                // To satisfy the "new every time" request, we always fetch fresh.
+                const freshQuote = await getFreshInspiration();
+                setInspiration(freshQuote);
+            } catch (error) {
+                console.error("Error fetching quote", error);
+                // Fallback to last analysis if available, otherwise generic
+                if (lastAnalysis?.motivationalMessage) {
+                    setInspiration(lastAnalysis.motivationalMessage);
+                } else {
+                     setInspiration({
+                        text: "إن الله لا يضيع أجر من أحسن عملاً.",
+                        source: "سورة الكهف",
+                        category: "religious"
+                    });
+                }
+            } finally {
+                setLoadingQuote(false);
+            }
+        };
+
+        fetchQuote();
+    }, []); // Empty dependency array = runs on mount
     
     return (
         <div className="space-y-10 animate-fade-in">
@@ -56,30 +69,38 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate }) => {
                 )}
             </div>
 
-            {/* Wisdom / Tip of the Day */}
-            <div className="glass-panel p-6 rounded-[24px] border border-gold-500/20 bg-gradient-to-r from-gold-900/10 to-transparent relative overflow-hidden transition-all hover:border-gold-500/40">
+            {/* Wisdom / Tip of the Day - Dynamic Section */}
+            <div className="glass-panel p-6 rounded-[24px] border border-gold-500/20 bg-gradient-to-r from-gold-900/10 to-transparent relative overflow-hidden transition-all hover:border-gold-500/40 min-h-[160px] flex items-center">
                 <div className="absolute top-0 left-0 p-4 opacity-5">
                     <Quote className="w-24 h-24 text-gold-500" />
                 </div>
-                <div className="relative z-10 flex flex-col md:flex-row items-center gap-6">
-                    <div className="p-4 bg-gold-500/10 rounded-full">
-                        <Lightbulb className="w-8 h-8 text-gold-400" />
+                
+                {loadingQuote ? (
+                    <div className="w-full flex justify-center items-center gap-3 text-gold-500/50 animate-pulse">
+                        <RefreshCw className="w-6 h-6 animate-spin" />
+                        <span>جاري جلب إلهام جديد من أجلك...</span>
                     </div>
-                    <div className="text-center md:text-right flex-1">
-                        <div className="flex items-center gap-2 justify-center md:justify-start mb-2">
-                            <h3 className="text-gold-400 text-xs font-bold uppercase tracking-wider">
-                                {lastAnalysis?.motivationalMessage ? 'رسالة خاصة لك' : 'إلهام اليوم'}
-                            </h3>
-                            {displayMessage.category && (
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-slate-400 border border-white/5">
-                                    {displayMessage.category}
-                                </span>
-                            )}
+                ) : inspiration ? (
+                    <div className="relative z-10 flex flex-col md:flex-row items-center gap-6 w-full animate-fade-in">
+                        <div className="p-4 bg-gold-500/10 rounded-full">
+                            <Lightbulb className="w-8 h-8 text-gold-400" />
                         </div>
-                        <p className="text-xl md:text-2xl font-serif text-slate-200 leading-relaxed">"{displayMessage.text}"</p>
-                        <p className="text-sm text-slate-500 mt-2 font-medium">— {displayMessage.source}</p>
+                        <div className="text-center md:text-right flex-1">
+                            <div className="flex items-center gap-2 justify-center md:justify-start mb-2">
+                                <h3 className="text-gold-400 text-xs font-bold uppercase tracking-wider">
+                                    قبس من النور (متجدد)
+                                </h3>
+                                {inspiration.category && (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-slate-400 border border-white/5">
+                                        {inspiration.category}
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-xl md:text-2xl font-serif text-slate-200 leading-relaxed">"{inspiration.text}"</p>
+                            <p className="text-sm text-slate-500 mt-2 font-medium">— {inspiration.source}</p>
+                        </div>
                     </div>
-                </div>
+                ) : null}
             </div>
 
             {/* Stats Grid */}

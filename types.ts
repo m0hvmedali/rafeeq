@@ -32,6 +32,12 @@ export interface ResearchConnection {
   relevance: string;
 }
 
+export interface MotivationalMessage {
+  text: string;
+  source: string;
+  category: 'religious' | 'scientific' | 'philosophical' | 'wisdom';
+}
+
 export interface AnalysisResponse {
   summary: {
     accomplishment: string;
@@ -44,11 +50,7 @@ export interface AnalysisResponse {
     suggestedRemedy: string;
     sources: { title: string; url: string; snippet: string }[];
   };
-  motivationalMessage: {
-    text: string;
-    source: string;
-    category: 'religious' | 'scientific' | 'philosophical' | 'wisdom';
-  };
+  motivationalMessage: MotivationalMessage;
   researchConnections: ResearchConnection[];
   tomorrowPlan: PlanItem[];
   recommendedMethods: StudyMethod[];
@@ -62,6 +64,13 @@ export interface AnalysisResponse {
     behavioralExplanation: string;
   };
   balanceScore: number;
+}
+
+export interface VoiceTutorResponse {
+  score: number;
+  feedback: string;
+  missingConcepts: string[];
+  correction: string;
 }
 
 export const DAYS_OF_WEEK = [

@@ -1,15 +1,18 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { WeeklySchedule, AnalysisResponse, UserProfile, GradeLevel } from './types';
 import ScheduleManager from './components/ScheduleManager';
 import AnalysisDisplay from './components/AnalysisDisplay';
 import Dashboard from './components/Dashboard';
 import ResourcesLibrary from './components/ResourcesLibrary';
 import LoginScreen from './components/LoginScreen';
+import FocusMode from './components/FocusMode';
+import VoiceRecap from './components/VoiceRecap';
+import { Logo } from './components/Logo';
 import { analyzeDayAndPlan } from './services/geminiService';
 import * as storage from './services/storage';
 import { supabase } from './lib/supabase';
-import { Sparkles, LayoutDashboard, Calendar, PenTool, BookOpen, Settings, Cloud, CloudOff, Menu, X, Loader2, Send, LogOut, ShieldAlert } from 'lucide-react';
+import { Sparkles, LayoutDashboard, Calendar, PenTool, BookOpen, Settings, Cloud, CloudOff, Menu, X, Loader2, Send, LogOut, ShieldAlert, Mic, MicOff, Brain, Mic2 } from 'lucide-react';
 
 const INITIAL_SCHEDULE: WeeklySchedule = {
   "السبت": ["رياضيات (جبر)", "فيزياء"],
@@ -21,7 +24,7 @@ const INITIAL_SCHEDULE: WeeklySchedule = {
   "الجمعة": ["راحة", "قراءة حرة"]
 };
 
-type View = 'dashboard' | 'daily' | 'report' | 'planner' | 'resources' | 'settings';
+type View = 'dashboard' | 'daily' | 'report' | 'planner' | 'resources' | 'focus' | 'voice-tutor' | 'settings';
 
 function App() {
   // --- STATE ---
@@ -37,16 +40,18 @@ function App() {
   const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Voice Input State
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
   // --- AUTH CHECK ---
   useEffect(() => {
-    const checkUser = async () => {
-        const savedUser = storage.getLastUser();
-        if (savedUser) {
-            setCurrentUser(savedUser);
-        }
-        setInitializing(false);
-    };
-    checkUser();
+    // Immediate local storage check to avoid login flicker
+    const savedUser = storage.getLastUser();
+    if (savedUser) {
+        setCurrentUser(savedUser);
+    }
+    setInitializing(false);
   }, []);
 
   // --- DATA LOADING ---
@@ -137,6 +142,53 @@ function App() {
     }
   };
 
+  // --- VOICE INPUT LOGIC ---
+  const toggleVoiceInput = () => {
+    if (isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+    } else {
+      if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        alert("المتصفح لا يدعم تحويل الصوت لنص. يرجى استخدام Chrome أو Edge.");
+        return;
+      }
+      
+      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'ar-EG';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => setIsListening(true);
+      
+      recognition.onresult = (event: any) => {
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          }
+        }
+        if (finalTranscript) {
+           setDailyReflection(prev => prev + ' ' + finalTranscript);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error("Speech recognition error", event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    }
+  };
+
   if (initializing) {
     return (
       <div className="min-h-screen bg-midnight flex items-center justify-center text-gold-500">
@@ -154,6 +206,8 @@ function App() {
     { id: 'dashboard', label: 'الرئيسية', icon: LayoutDashboard },
     { id: 'daily', label: 'إدخال اليوم', icon: PenTool },
     { id: 'report', label: 'التوجيه والإرشاد', icon: Sparkles },
+    { id: 'voice-tutor', label: 'المعلم الصوتي', icon: Mic2 },
+    { id: 'focus', label: 'التركيز العميق', icon: Brain }, 
     { id: 'planner', label: 'الجدول الأسبوعي', icon: Calendar },
     { id: 'resources', label: 'المصادر', icon: BookOpen },
     { id: 'settings', label: 'الإعدادات', icon: Settings },
@@ -167,7 +221,7 @@ function App() {
         <div className="p-8 flex items-center justify-between">
             <div className="flex items-center gap-3 group cursor-pointer">
                 <div className="w-12 h-12 bg-gradient-to-br from-gold-500/10 to-gold-700/10 rounded-xl flex items-center justify-center border border-gold-500/20 shadow-lg shadow-gold-500/10 group-hover:scale-110 transition-transform duration-300">
-                    <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
+                    <Logo className="w-8 h-8" />
                 </div>
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-white">رفيق</h1>
@@ -211,7 +265,7 @@ function App() {
         <header className="lg:hidden p-4 flex items-center justify-between bg-midnight/80 backdrop-blur border-b border-white/5 sticky top-0 z-40">
             <div className="flex items-center gap-2">
                  <div className="w-8 h-8 rounded-lg flex items-center justify-center">
-                    <img src="/logo.png" alt="Logo" className="w-6 h-6 object-contain" />
+                    <Logo className="w-6 h-6" />
                 </div>
                 <h1 className="text-lg font-bold">رفيق</h1>
             </div>
@@ -236,19 +290,28 @@ function App() {
                     </div>
                     
                     <div className="glass-panel p-1 rounded-[2rem] transition-all duration-500 hover:shadow-[0_0_30px_rgba(234,179,8,0.1)]">
-                        <div className="bg-void/50 rounded-[30px] p-8 border border-white/5">
+                        <div className="bg-void/50 rounded-[30px] p-8 border border-white/5 relative">
                             <label className="block text-sm font-bold text-slate-500 mb-3 uppercase tracking-wider">سجل أفكارك ومشاعرك</label>
-                            <textarea
-                                value={dailyReflection}
-                                onChange={(e) => setDailyReflection(e.target.value)}
-                                placeholder="كيف سارت أمور يومك؟ هل واجهت ضغوطاً؟ صف مشاعرك وأداءك بصدق..."
-                                className="glass-input w-full h-72 p-6 rounded-2xl text-lg text-slate-200 placeholder-slate-600 outline-none resize-none leading-loose mb-8 font-serif"
-                            />
+                            <div className="relative">
+                                <textarea
+                                    value={dailyReflection}
+                                    onChange={(e) => setDailyReflection(e.target.value)}
+                                    placeholder="كيف سارت أمور يومك؟ هل واجهت ضغوطاً؟ صف مشاعرك وأداءك بصدق... (يمكنك استخدام الميكروفون للتحدث)"
+                                    className="glass-input w-full h-72 p-6 rounded-2xl text-lg text-slate-200 placeholder-slate-600 outline-none resize-none leading-loose mb-8 font-serif pb-16"
+                                />
+                                <button 
+                                    onClick={toggleVoiceInput}
+                                    className={`absolute bottom-12 left-6 p-3 rounded-full transition-all duration-300 ${isListening ? 'bg-red-500/20 text-red-500 animate-pulse border border-red-500/50' : 'bg-white/5 text-slate-400 hover:text-gold-400 border border-white/10'}`}
+                                    title="تحدث بدلاً من الكتابة"
+                                >
+                                    {isListening ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+                                </button>
+                            </div>
                             
                             <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                                 <div className="flex items-center gap-2 text-xs text-slate-500 bg-white/5 px-3 py-1.5 rounded-full">
                                     <Sparkles className="w-3 h-3 text-gold-500" />
-                                    تحليل مدعوم بالذكاء الاصطناعي وعلوم النفس
+                                    تحليل مدعوم بـ Gemini + بحث Google
                                 </div>
                                 <button
                                     onClick={handleAnalyze}
@@ -284,6 +347,14 @@ function App() {
                         </div>
                     )}
                 </>
+            )}
+
+            {currentView === 'voice-tutor' && currentUser && (
+                <VoiceRecap gradeLevel={currentUser.grade} />
+            )}
+
+            {currentView === 'focus' && (
+                <FocusMode />
             )}
 
             {currentView === 'planner' && (
