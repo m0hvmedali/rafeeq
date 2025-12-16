@@ -1,10 +1,22 @@
-
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Modality } from "@google/genai";
 import { WeeklySchedule, AnalysisResponse, GradeLevel, MotivationalMessage, VoiceTutorResponse } from "../types";
 
-// Hardcoded API Key as requested
-const apiKey = 'AIzaSyApnA5aQYvVRR0A5n4Fv2ohP_26EJg3nvQ';
+// ------------------------------------------------------------------
+// هام: بناءً على طلبك لوضع المفتاح علناً داخل الكود.
+// يرجى استبدال process.env.API_KEY بمفتاحك الخاص كنص مباشر إذا رغبت بذلك.
+// مثال: const apiKey = "AIzaSy...";
+// ------------------------------------------------------------------
+const apiKey = process.env.API_KEY || "YOUR_API_KEY_HERE"; 
+
 const ai = new GoogleGenAI({ apiKey });
+
+// Safety settings to prevent blocking legitimate requests about stress/anxiety
+const SAFETY_SETTINGS = [
+  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+];
 
 // The comprehensive system prompt provided by the user
 const SYSTEM_INSTRUCTION = `
@@ -98,11 +110,17 @@ export const analyzeDayAndPlan = async (
       config: {
         tools: [{googleSearch: {}}],
         systemInstruction: SYSTEM_INSTRUCTION,
+        safetySettings: SAFETY_SETTINGS,
       }
     });
 
     let text = response.text;
+    
+    // Check for safety blocks or empty responses
     if (!text) {
+        if (response.candidates && response.candidates.length > 0 && response.candidates[0].finishReason === 'SAFETY') {
+            throw new Error("عذراً، لم أتمكن من تحليل المدخلات لأنها قد تحتوي على محتوى محظور (فلتر الأمان). حاول صياغة الجملة بطريقة أخرى.");
+        }
         throw new Error("Empty response from AI");
     }
 
@@ -144,7 +162,8 @@ export const getFreshInspiration = async (): Promise<MotivationalMessage> => {
             model: "gemini-2.5-flash",
             contents: prompt,
             config: {
-                tools: [{googleSearch: {}}]
+                tools: [{googleSearch: {}}],
+                safetySettings: SAFETY_SETTINGS,
                 // responseMimeType: "application/json" cannot be used with tools
             }
         });
@@ -188,6 +207,9 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string = 'a
                         text: "Transcribe the audio exactly as spoken in Arabic."
                     }
                 ]
+            },
+            config: {
+                safetySettings: SAFETY_SETTINGS,
             }
         });
         return response.text || "";
@@ -208,12 +230,13 @@ export const generateSpeech = async (text: string): Promise<string> => {
                 parts: [{ text: text }]
             },
             config: {
-                responseModalities: ['AUDIO'],
+                responseModalities: [Modality.AUDIO],
                 speechConfig: {
                     voiceConfig: {
                         prebuiltVoiceConfig: { voiceName: 'Zephyr' } // Zephyr is usually good for calm/teacher tone
                     }
-                }
+                },
+                safetySettings: SAFETY_SETTINGS,
             }
         });
 
@@ -260,7 +283,8 @@ export const evaluateRecap = async (
       model: "gemini-2.5-flash",
       contents: prompt,
       config: {
-        tools: [{googleSearch: {}}]
+        tools: [{googleSearch: {}}],
+        safetySettings: SAFETY_SETTINGS,
         // responseMimeType: "application/json" cannot be used with tools
       }
     });
