@@ -6,7 +6,7 @@ import { WeeklySchedule, AnalysisResponse, GradeLevel, MotivationalMessage, Voic
 // يرجى استبدال process.env.API_KEY بمفتاحك الخاص كنص مباشر إذا رغبت بذلك.
 // مثال: const apiKey = "AIzaSy...";
 // ------------------------------------------------------------------
-const apiKey = process.env.API_KEY || "YOUR_API_KEY_HERE"; 
+const apiKey = process.env.API_KEY || "AIzaSyBUpulPXzeu9myyQE376o2O9wYo6ahDGNY"; 
 
 const ai = new GoogleGenAI({ apiKey });
 
