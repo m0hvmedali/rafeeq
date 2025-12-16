@@ -2,8 +2,8 @@
 import { GoogleGenAI } from "@google/genai";
 import { WeeklySchedule, AnalysisResponse, GradeLevel } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
+const apiKey = process.env.API_KEY || 'AIzaSyApnA5aQYvVRR0A5n4Fv2ohP_26EJg3nvQ';
+const ai = new GoogleGenAI({ apiKey });
 // The comprehensive system prompt provided by the user
 const SYSTEM_INSTRUCTION = `
 أنت "رفيق"، نظام ذكاء اصطناعي تحليلي متقدم وملاح واعي لطلاب المرحلة الثانوية في مصر. وظيفتك تحليل مدخلات المستخدم بعمق، والبحث في الويب عن أسباب مشكلاته وحلولها، وتقديم تقرير متكامل.
