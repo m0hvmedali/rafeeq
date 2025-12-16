@@ -1,0 +1,168 @@
+import { GoogleGenAI, Type } from "@google/genai";
+import { WeeklySchedule, AnalysisResponse } from "../types";
+
+const apiKey = process.env.API_KEY || '';
+const ai = new GoogleGenAI({ apiKey });
+
+// The comprehensive system prompt provided by the user
+const SYSTEM_INSTRUCTION = `
+أنت "رفيق"، نظام ذكاء اصطناعي تحليلي متقدم وملاح واعي. وظيفتك تحليل مدخلات المستخدم بعمق، والبحث في الويب عن أسباب مشكلاته وحلولها، وتقديم تقرير متكامل.
+
+### 🔹 الأدوات المتاحة:
+1. **Google Search**: استخدم هذه الأداة **إجبارياً** عندما يذكر المستخدم مشكلة (توتر، نسيان، أرق، تسويف) للبحث عن:
+   - الأسباب العلمية/النفسية الحالية.
+   - أحدث العلاجات السلوكية.
+   - مصادر موثوقة.
+
+### 🔹 البيانات المرجعية الثابتة (قاعدة المعرفة):
+* أبحاث أكاديمية عن الجداول الدراسية (Block Scheduling).
+* دراسات PISA وأنظمة التعليم المتفوقة.
+* أبحاث النوم (AAP – CDC).
+* علم الأعصاب المعرفي (Neuroscience).
+* المناهج المصرية الرسمية.
+* **المصحف الشريف كامل والسنة النبوية** (للدعم الروحي العميق).
+
+### 🔹 المطلوب منك مع **كل رسالة**:
+
+#### 1️⃣ تحليل الويب (Web Analysis)
+* ابحث عن أعراض المستخدم.
+* حدد "الجذر المشكلة" (Root Cause) بناءً على نتائج البحث.
+* اقترح "علاجاً" (Remedy) عملياً.
+* أورد المصادر (روابط) التي وجدتها.
+
+#### 2️⃣ التقرير المعتاد
+* تحليل الإنجاز والضغط.
+* ربط بالأبحاث الأكاديمية (PISA, etc.).
+* خطة الغد (Time Blocking).
+* **دعم قرآني مختار بعناية فائقة**: آية تلمس القلب وتعالج الموقف النفسي الحالي، مع تفسير سلوكي لا وعظي.
+
+### 🔹 تنسيق الإخراج:
+يجب أن يكون الرد بصيغة JSON حصراً تتوافق مع الـ Schema المحددة.
+`;
+
+export const analyzeDayAndPlan = async (
+  dailyReflection: string,
+  weeklySchedule: WeeklySchedule,
+  nextDayName: string
+): Promise<AnalysisResponse> => {
+  
+  if (!apiKey) {
+    throw new Error("API Key is missing. Please set it in the environment.");
+  }
+
+  const prompt = `
+    بيانات المستخدم:
+    - ملخص اليوم: "${dailyReflection}"
+    - جدول الأسبوع المعتاد: ${JSON.stringify(weeklySchedule)}
+    - اليوم التالي هو: ${nextDayName}
+
+    قم بالبحث في الويب عن أي مشاكل ذكرتها (مثل قلة النوم، التشتت، القلق) وقدم تحليلاً عميقاً وخطة للغد.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        tools: [{googleSearch: {}}], // Enable Google Search
+        systemInstruction: SYSTEM_INSTRUCTION,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            summary: {
+                type: Type.OBJECT,
+                properties: {
+                    accomplishment: { type: Type.STRING },
+                    effortType: { type: Type.STRING, enum: ['mental', 'emotional', 'physical'] },
+                    stressLevel: { type: Type.STRING, enum: ['low', 'medium', 'high'] },
+                    analysisText: { type: Type.STRING, description: "التحليل السلوكي والتعليمي المفصل" }
+                }
+            },
+            webAnalysis: {
+                type: Type.OBJECT,
+                description: "Insights derived from Google Search regarding the user's state",
+                properties: {
+                    rootCause: { type: Type.STRING, description: "السبب الجذري للمشكلة بناء على البحث" },
+                    suggestedRemedy: { type: Type.STRING, description: "العلاج المقترح بناء على المصادر" },
+                    sources: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                title: { type: Type.STRING },
+                                url: { type: Type.STRING },
+                                snippet: { type: Type.STRING }
+                            }
+                        }
+                    }
+                }
+            },
+            researchConnections: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        point: { type: Type.STRING },
+                        source: { type: Type.STRING },
+                        evidenceStrength: { type: Type.STRING, enum: ['strong', 'medium', 'limited'] },
+                        type: { type: Type.STRING, enum: ['causal', 'correlational'] },
+                        relevance: { type: Type.STRING }
+                    }
+                }
+            },
+            tomorrowPlan: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        time: { type: Type.STRING },
+                        task: { type: Type.STRING },
+                        method: { type: Type.STRING },
+                        type: { type: Type.STRING, enum: ['study', 'break', 'sleep', 'prayer'] }
+                    }
+                }
+            },
+            recommendedMethods: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        subject: { type: Type.STRING },
+                        methodName: { type: Type.STRING },
+                        details: { type: Type.STRING },
+                        tools: { type: Type.ARRAY, items: { type: Type.STRING } }
+                    }
+                }
+            },
+            psychologicalSupport: {
+                type: Type.OBJECT,
+                properties: {
+                    message: { type: Type.STRING },
+                    technique: { type: Type.STRING }
+                }
+            },
+            quranicLink: {
+                type: Type.OBJECT,
+                properties: {
+                    verse: { type: Type.STRING },
+                    surah: { type: Type.STRING },
+                    behavioralExplanation: { type: Type.STRING }
+                }
+            },
+            balanceScore: { type: Type.NUMBER, description: "A score from 0 to 100 indicating life/study balance" }
+          }
+        }
+      }
+    });
+
+    if (response.text) {
+      return JSON.parse(response.text) as AnalysisResponse;
+    } else {
+      throw new Error("Empty response from AI");
+    }
+  } catch (error) {
+    console.error("Error analyzing day:", error);
+    throw error;
+  }
+};
