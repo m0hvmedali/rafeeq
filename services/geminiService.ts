@@ -170,6 +170,63 @@ export const getFreshInspiration = async (): Promise<MotivationalMessage> => {
 };
 
 /**
+ * Transcribes audio using Gemini 2.5 Flash.
+ */
+export const transcribeAudio = async (base64Audio: string, mimeType: string = 'audio/webm'): Promise<string> => {
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: {
+                parts: [
+                    {
+                        inlineData: {
+                            mimeType: mimeType,
+                            data: base64Audio
+                        }
+                    },
+                    {
+                        text: "Transcribe the audio exactly as spoken in Arabic."
+                    }
+                ]
+            }
+        });
+        return response.text || "";
+    } catch (error) {
+        console.error("Transcription error:", error);
+        throw new Error("تعذر تحويل الصوت إلى نص.");
+    }
+};
+
+/**
+ * Generates speech from text using Gemini 2.5 Flash TTS.
+ */
+export const generateSpeech = async (text: string): Promise<string> => {
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash-preview-tts",
+            contents: {
+                parts: [{ text: text }]
+            },
+            config: {
+                responseModalities: ['AUDIO'],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: 'Zephyr' } // Zephyr is usually good for calm/teacher tone
+                    }
+                }
+            }
+        });
+
+        const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (!audioData) throw new Error("No audio returned");
+        return audioData;
+    } catch (error) {
+        console.error("TTS error:", error);
+        throw new Error("تعذر توليد الصوت.");
+    }
+};
+
+/**
  * Voice Tutor: Evaluates a student's spoken explanation of a subject.
  */
 export const evaluateRecap = async (
