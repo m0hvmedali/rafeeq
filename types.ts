@@ -47,6 +47,12 @@ export interface QuranicLink {
   behavioralExplanation: string; // Not preaching, behavioral link
 }
 
+export interface MotivationalMessage {
+  text: string;
+  source: string;
+  category: 'religious' | 'scientific' | 'philosophical';
+}
+
 export interface AnalysisResponse {
   // 1. Daily Analysis
   summary: {
@@ -73,6 +79,9 @@ export interface AnalysisResponse {
 
   // 7. Quranic Link
   quranicLink: QuranicLink;
+
+  // 8. Dynamic Web-sourced Motivation
+  motivationalMessage: MotivationalMessage;
   
   // Dashboard Stats (Calculated by AI)
   balanceScore: number; // 0-100

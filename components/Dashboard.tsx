@@ -7,28 +7,34 @@ interface DashboardProps {
     onNavigate: (view: string) => void;
 }
 
-const INSPIRATIONS = [
-    { text: "أحب الأعمال إلى الله أدومها وإن قل.", source: "حديث شريف", type: "religious" },
-    { text: "وأن ليس للإنسان إلا ما سعى، وأن سعيه سوف يرى.", source: "سورة النجم", type: "religious" },
-    { text: "استعن بالله ولا تعجز.", source: "حديث شريف", type: "religious" },
-    { text: "إن مع العسر يسرا.", source: "سورة الشرح", type: "religious" },
-    { text: "الدماغ يعمل بفعالية أكبر في جلسات قصيرة ومكثفة (تقنية بومودورو).", source: "علم النفس المعرفي", type: "scientific" },
-    { text: "النوم ليس مضيعة للوقت، بل هو الوقت الذي يتم فيه تثبيت المعلومات في الذاكرة طويلة المدى.", source: "علوم الأعصاب", type: "scientific" },
-    { text: "لا يكلف الله نفساً إلا وسعها.", source: "سورة البقرة", type: "religious" },
-    { text: "قليل مستمر خير من كثير منقطع.", source: "حكمة عربية", type: "wisdom" },
+const STATIC_INSPIRATIONS = [
+    { text: "أحب الأعمال إلى الله أدومها وإن قل.", source: "حديث شريف", category: "religious" },
+    { text: "وأن ليس للإنسان إلا ما سعى، وأن سعيه سوف يرى.", source: "سورة النجم", category: "religious" },
+    { text: "استعن بالله ولا تعجز.", source: "حديث شريف", category: "religious" },
+    { text: "إن مع العسر يسرا.", source: "سورة الشرح", category: "religious" },
+    { text: "الدماغ يعمل بفعالية أكبر في جلسات قصيرة ومكثفة (تقنية بومودورو).", source: "علم النفس المعرفي", category: "scientific" },
+    { text: "النوم ليس مضيعة للوقت، بل هو الوقت الذي يتم فيه تثبيت المعلومات في الذاكرة طويلة المدى.", source: "علوم الأعصاب", category: "scientific" },
+    { text: "لا يكلف الله نفساً إلا وسعها.", source: "سورة البقرة", category: "religious" },
+    { text: "قليل مستمر خير من كثير منقطع.", source: "حكمة عربية", category: "wisdom" },
 ];
 
 const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate }) => {
     const balance = lastAnalysis?.balanceScore || 75;
     const stress = lastAnalysis?.summary.stressLevel || 'low';
     
-    const [dailyWisdom, setDailyWisdom] = useState(INSPIRATIONS[0]);
+    // Determine the message to show:
+    // If we have a fresh web-sourced motivational message from the last analysis, use it.
+    // Otherwise, fallback to a random static one.
+    const [displayMessage, setDisplayMessage] = useState<any>(STATIC_INSPIRATIONS[0]);
 
     useEffect(() => {
-        // Pick a random inspiration on mount
-        const randomIndex = Math.floor(Math.random() * INSPIRATIONS.length);
-        setDailyWisdom(INSPIRATIONS[randomIndex]);
-    }, []);
+        if (lastAnalysis?.motivationalMessage) {
+            setDisplayMessage(lastAnalysis.motivationalMessage);
+        } else {
+            const randomIndex = Math.floor(Math.random() * STATIC_INSPIRATIONS.length);
+            setDisplayMessage(STATIC_INSPIRATIONS[randomIndex]);
+        }
+    }, [lastAnalysis]);
     
     return (
         <div className="space-y-10 animate-fade-in">
@@ -51,7 +57,7 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate }) => {
             </div>
 
             {/* Wisdom / Tip of the Day */}
-            <div className="glass-panel p-6 rounded-[24px] border border-gold-500/20 bg-gradient-to-r from-gold-900/10 to-transparent relative overflow-hidden">
+            <div className="glass-panel p-6 rounded-[24px] border border-gold-500/20 bg-gradient-to-r from-gold-900/10 to-transparent relative overflow-hidden transition-all hover:border-gold-500/40">
                 <div className="absolute top-0 left-0 p-4 opacity-5">
                     <Quote className="w-24 h-24 text-gold-500" />
                 </div>
@@ -60,9 +66,18 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate }) => {
                         <Lightbulb className="w-8 h-8 text-gold-400" />
                     </div>
                     <div className="text-center md:text-right flex-1">
-                        <h3 className="text-gold-400 text-xs font-bold uppercase tracking-wider mb-2">إلهام اليوم</h3>
-                        <p className="text-xl md:text-2xl font-serif text-slate-200 leading-relaxed">"{dailyWisdom.text}"</p>
-                        <p className="text-sm text-slate-500 mt-2 font-medium">— {dailyWisdom.source}</p>
+                        <div className="flex items-center gap-2 justify-center md:justify-start mb-2">
+                            <h3 className="text-gold-400 text-xs font-bold uppercase tracking-wider">
+                                {lastAnalysis?.motivationalMessage ? 'رسالة خاصة لك' : 'إلهام اليوم'}
+                            </h3>
+                            {displayMessage.category && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-slate-400 border border-white/5">
+                                    {displayMessage.category}
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-xl md:text-2xl font-serif text-slate-200 leading-relaxed">"{displayMessage.text}"</p>
+                        <p className="text-sm text-slate-500 mt-2 font-medium">— {displayMessage.source}</p>
                     </div>
                 </div>
             </div>
