@@ -1,7 +1,8 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { WeeklySchedule, AnalysisResponse } from "../types";
 
-const apiKey = process.env.API_KEY || '';
+// Hardcoded Gemini API Key as requested
+const apiKey = 'AIzaSyApnA5aQYvVRR0A5n4Fv2ohP_26EJg3nvQ';
 const ai = new GoogleGenAI({ apiKey });
 
 // The comprehensive system prompt provided by the user
@@ -50,7 +51,7 @@ export const analyzeDayAndPlan = async (
 ): Promise<AnalysisResponse> => {
   
   if (!apiKey) {
-    throw new Error("API Key is missing. Please set it in the environment.");
+    throw new Error("API Key is missing.");
   }
 
   const prompt = `
