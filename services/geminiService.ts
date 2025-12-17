@@ -1,7 +1,8 @@
+
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Modality } from "@google/genai";
 import { WeeklySchedule, AnalysisResponse, GradeLevel, MotivationalMessage, VoiceTutorResponse } from "../types";
 
-// يتم قراءة المفتاح الآن حصرياً من متغيرات البيئة (ملف .env)
+// Always use process.env.API_KEY directly as per @google/genai guidelines.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Safety settings to prevent blocking legitimate requests about stress/anxiety

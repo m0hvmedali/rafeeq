@@ -23,6 +23,37 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
   });
 };
 
+// Helper function to decode base64 string to Uint8Array
+function decode(base64: string) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// Helper function to decode PCM audio data
+async function decodeAudioData(
+  data: Uint8Array,
+  ctx: AudioContext,
+  sampleRate: number,
+  numChannels: number,
+): Promise<AudioBuffer> {
+  const dataInt16 = new Int16Array(data.buffer);
+  const frameCount = dataInt16.length / numChannels;
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+  for (let channel = 0; channel < numChannels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+  }
+  return buffer;
+}
+
 const VoiceRecap: React.FC<VoiceRecapProps> = ({ gradeLevel }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -104,33 +135,26 @@ const VoiceRecap: React.FC<VoiceRecapProps> = ({ gradeLevel }) => {
 
   const handlePlayFeedback = async () => {
     if (!result?.feedback) return;
-    if (audioUrl) {
-        // If already generated, play it
-        const audio = new Audio(audioUrl);
-        audio.play();
-        return;
-    }
-
+    
     setIsGeneratingSpeech(true);
     try {
         const base64Audio = await generateSpeech(result.feedback);
-        // Convert base64 back to blob url for playback
-        const byteCharacters = atob(base64Audio);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: 'audio/mp3' }); // Gemini returns PCM/WAV usually but browser handles it
-        // Actually Gemini Live API returns PCM, but generateContent with AUDIO modality returns encoded audio depending on config.
-        // The default raw data works best if we assume raw PCM or just create a generic blob if header is present.
-        // Wait, standard generateContent audio output usually includes headers if we don't specify raw PCM.
-        // Let's assume standard playback compatible format.
         
-        const url = URL.createObjectURL(blob);
-        setAudioUrl(url);
-        const audio = new Audio(url);
-        audio.play();
+        // Use AudioContext to play PCM data
+        const outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+        const outputNode = outputAudioContext.createGain();
+        const audioBuffer = await decodeAudioData(
+          decode(base64Audio),
+          outputAudioContext,
+          24000,
+          1,
+        );
+        const source = outputAudioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(outputNode);
+        outputNode.connect(outputAudioContext.destination);
+        source.start();
+
     } catch (e) {
         console.error("TTS Failed", e);
         alert("فشل توليد الصوت.");
