@@ -35,7 +35,7 @@ const smartTruncate = (text: string, limit: number): string => {
 };
 
 /**
- * Generic Retry Mechanism
+ * Generic Retry Mechanism with 429 Awareness
  */
 async function callProviderWithRetry<T>(
     fn: () => Promise<T>, 
@@ -46,6 +46,17 @@ async function callProviderWithRetry<T>(
     try {
         return await fn();
     } catch (e: any) {
+        const status = e?.status;
+        const message = e?.message || '';
+        
+        // Critical: Do NOT retry on 429
+        const isRateLimited = status === 429 || message.includes('429') || message.includes('quota');
+        
+        if (isRateLimited) {
+             console.warn(`${providerName} Rate Limited (429). Skipping retries to allow fallbacks.`);
+             throw e;
+        }
+
         if (retries > 0) {
             console.warn(`${providerName} failed. Retrying in ${delay}ms...`, e.message);
             await new Promise(r => setTimeout(r, delay));

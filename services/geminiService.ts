@@ -11,29 +11,41 @@ const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
+// Global cooldown state
+let geminiCooldownUntil = 0;
+const COOLDOWN_PERIOD = 60000; // 1 Minute Cooldown on 429
+
 async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
+  // 1. Check Cooldown
+  if (Date.now() < geminiCooldownUntil) {
+    const remaining = Math.ceil((geminiCooldownUntil - Date.now()) / 1000);
+    throw new Error(`Gemini is cooling down (429). Skipping for ${remaining}s.`);
+  }
+
   try {
     return await fn();
   } catch (error: any) {
     const message = error?.message || '';
     const status = error?.status;
-    const isOverloaded = status === 503 || message.includes('503') || message.includes('overloaded');
+    
+    // 2. Identify Errors
     const isRateLimited = status === 429 || message.includes('429') || message.includes('quota');
+    const isOverloaded = status === 503 || message.includes('503') || message.includes('overloaded');
 
-    if (retries > 0 && (isOverloaded || isRateLimited)) {
-      let waitTime = delay;
-      if (isRateLimited) {
-         const match = message.match(/retry in (\d+(\.\d+)?)s/);
-         if (match && match[1]) {
-             waitTime = Math.ceil(parseFloat(match[1]) * 1000) + 1000;
-         } else {
-             waitTime = delay * 2; 
-         }
-      }
-      console.warn(`Gemini API Error (${status}). Retrying in ${waitTime}ms...`);
-      await new Promise(resolve => setTimeout(resolve, waitTime));
-      return callWithRetry(fn, retries - 1, isRateLimited ? waitTime : delay * 1.5); 
+    // 3. Handle 429 (STOP RETRY + ACTIVATE COOLDOWN)
+    if (isRateLimited) {
+      console.warn(`Gemini 429 (Rate Limit) detected. Activating cooldown for ${COOLDOWN_PERIOD/1000}s.`);
+      geminiCooldownUntil = Date.now() + COOLDOWN_PERIOD;
+      throw error; // Fail immediately to trigger orchestrator fallback
     }
+
+    // 4. Handle 503 (RETRY is okay)
+    if (retries > 0 && isOverloaded) {
+      console.warn(`Gemini API Overloaded (${status}). Retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return callWithRetry(fn, retries - 1, delay * 1.5); 
+    }
+    
     throw error;
   }
 }
