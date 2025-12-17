@@ -3,10 +3,10 @@ import { supabase } from '../lib/supabase';
 import { AnalysisResponse, MotivationalMessage } from '../types';
 
 /**
- * RESILIENT DB
- * A unified storage layer that ensures:
- * 1. All AI outputs are saved locally and synced to cloud.
- * 2. If AI fails, we search this DB for "best match" historical data.
+ * RESILIENT DB - THE SELF-LEARNING MEMORY
+ * Stores every successful interaction.
+ * Prevents duplicates.
+ * Acts as Level 1 Cache and Final Fallback.
  */
 
 const DB_KEY = 'rafeeq_resilient_knowledge_base';
@@ -16,7 +16,7 @@ export interface KnowledgeEntry {
     userId: string;
     timestamp: number;
     inputType: 'reflection' | 'question' | 'general';
-    inputSummary: string; // The user's text or keywords
+    inputSummary: string; // Used for fuzzy matching
     data: AnalysisResponse | MotivationalMessage;
     tags: string[];
 }
@@ -33,14 +33,13 @@ const INITIAL_DB: ResilientDBStructure = {
     lastSync: 0
 };
 
-// --- CORE OPERATIONS ---
+// --- LOAD / SAVE ---
 
 export const loadDB = (): ResilientDBStructure => {
     try {
         const stored = localStorage.getItem(DB_KEY);
         return stored ? JSON.parse(stored) : INITIAL_DB;
     } catch (e) {
-        console.error("ResilientDB Load Error", e);
         return INITIAL_DB;
     }
 };
@@ -49,62 +48,15 @@ const saveDB = (db: ResilientDBStructure) => {
     try {
         localStorage.setItem(DB_KEY, JSON.stringify(db));
     } catch (e) {
-        console.error("ResilientDB Save Error (Quota exceeded?)", e);
-        // Strategy: Trim old entries if full
-        if (db.entries.length > 50) {
-            db.entries = db.entries.slice(0, 50);
-            try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch(e2){}
+        // If quota exceeded, trim aggressively
+        if (db.entries.length > 20) {
+            db.entries = db.entries.slice(0, 20);
+            localStorage.setItem(DB_KEY, JSON.stringify(db));
         }
     }
 };
 
-// --- SYNC ENGINE ---
-
-export const syncWithCloud = async (username: string) => {
-    if (!supabase) return;
-    const db = loadDB();
-
-    // 1. PUSH local entries that are newer than last sync (Simplified: just upsert the blob for now)
-    // In a production app, we would sync row-by-row. Here we treat the KB as a user document.
-    try {
-        // Fetch remote first to merge
-        const { data: remoteData } = await supabase
-            .from('user_knowledge_base')
-            .select('data')
-            .eq('user_id', username)
-            .single();
-
-        let mergedEntries = [...db.entries];
-        
-        if (remoteData && remoteData.data) {
-            const remoteDB = remoteData.data as ResilientDBStructure;
-            // Merge logic: Add remote entries that don't exist locally
-            const localIds = new Set(db.entries.map(e => e.id));
-            const newFromRemote = remoteDB.entries.filter(e => !localIds.has(e.id));
-            mergedEntries = [...newFromRemote, ...mergedEntries];
-        }
-
-        // Sort by date desc
-        mergedEntries.sort((a, b) => b.timestamp - a.timestamp);
-        
-        // Update Local
-        db.entries = mergedEntries;
-        db.lastSync = Date.now();
-        saveDB(db);
-
-        // Push Back to Cloud
-        await supabase.from('user_knowledge_base').upsert({
-            user_id: username,
-            data: db,
-            updated_at: new Date().toISOString()
-        });
-        
-    } catch (e) {
-        console.warn("Cloud Sync Warning:", e);
-    }
-};
-
-// --- WRITE OPERATIONS ---
+// --- SELF-LEARNING WRITER ---
 
 export const saveGeneratedContent = async (
     username: string, 
@@ -113,65 +65,62 @@ export const saveGeneratedContent = async (
     tags: string[] = []
 ) => {
     const db = loadDB();
-    
-    // Extract meaningful keywords from input for better search later
-    const summary = input.split(' ').slice(0, 20).join(' '); // Simple truncation
+    const normalizedInput = input.trim().toLowerCase();
 
+    // 1. DUPLICATE PREVENTION LOGIC
+    // Check if we have a very recent entry (last 24 hours) with very similar text
+    const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+    const isDuplicate = db.entries.some(entry => {
+        return entry.timestamp > oneDayAgo && 
+               calculateSimilarity(entry.inputSummary, normalizedInput) > 0.8;
+    });
+
+    if (isDuplicate) {
+        console.log("Memory: Skipping duplicate entry.");
+        return;
+    }
+
+    // 2. CREATE NEW ENTRY
     const newEntry: KnowledgeEntry = {
         id: crypto.randomUUID(),
         userId: username,
         timestamp: Date.now(),
         inputType: 'reflection',
-        inputSummary: summary,
+        inputSummary: input, // Store full input for better matching, or truncate if too long
         data: output,
         tags: tags
     };
 
-    // Add to top
+    // 3. ADD & TRIM
     db.entries.unshift(newEntry);
-    
-    // Maintain size (Keep last 100 high quality interactions locally)
-    if (db.entries.length > 100) {
-        db.entries = db.entries.slice(0, 100);
-    }
+    if (db.entries.length > 50) db.entries = db.entries.slice(0, 50); // Keep last 50 high quality
 
     saveDB(db);
     
-    // Fire and forget sync (debounced in real app, direct here)
-    // setTimeout(() => syncWithCloud(username), 1000);
+    // 4. CLOUD SYNC (Fire & Forget)
+    syncWithCloud(username);
 };
 
-// --- READ / SEARCH OPERATIONS (THE "BRAIN") ---
+// --- CACHE READER (ALGORITHM STEP 1 & 7) ---
 
 /**
- * Finds the most relevant past analysis based on current input text.
- * Uses a simple token overlap (Jaccard-like) algorithm.
+ * Finds the best match in memory.
+ * @param query The user input
+ * @param minScore Threshold for acceptance (0.6 for Cache, 0.25 for Fallback)
  */
-export const findBestMatch = (query: string): AnalysisResponse | null => {
+export const findBestMatch = (query: string, minScore: number = 0.6): AnalysisResponse | null => {
     const db = loadDB();
     if (db.entries.length === 0) return null;
 
-    const queryTokens = new Set(query.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+    const normalizedQuery = query.trim().toLowerCase();
     
     let bestEntry: KnowledgeEntry | null = null;
     let maxScore = 0;
 
     for (const entry of db.entries) {
         if (entry.inputType !== 'reflection') continue;
-
-        // Tokenize stored input summary
-        const entryTokens = new Set(entry.inputSummary.toLowerCase().split(/\s+/).filter(w => w.length > 2));
         
-        // Calculate Intersection
-        let matchCount = 0;
-        queryTokens.forEach(token => {
-            if (entryTokens.has(token)) matchCount++;
-        });
-
-        // Score: (Matches / Total Query Tokens) + Recency Bonus
-        // Recency Bonus: 0.1 for every day recent? No, simple decay.
-        // We prioritize relevance over recency here.
-        const score = matchCount / queryTokens.size;
+        const score = calculateSimilarity(entry.inputSummary.toLowerCase(), normalizedQuery);
 
         if (score > maxScore) {
             maxScore = score;
@@ -179,20 +128,46 @@ export const findBestMatch = (query: string): AnalysisResponse | null => {
         }
     }
 
-    // Threshold: At least 20% word overlap to consider it "relevant"
-    if (bestEntry && maxScore > 0.2) {
-        const fallbackData = bestEntry.data as AnalysisResponse;
-        
-        // Inject metadata so UI knows it's from memory
+    if (bestEntry && maxScore > minScore) {
+        console.log(`Memory Hit! Score: ${maxScore.toFixed(2)} > ${minScore}`);
+        const data = bestEntry.data as AnalysisResponse;
         return {
-            ...fallbackData,
-            source: 'memory',
+            ...data,
+            source: 'memory', // Will be overwritten by orchestrator to 'memory-fallback' if needed
             summary: {
-                ...fallbackData.summary,
-                analysisText: `(مسترجع من الذاكرة: ${new Date(bestEntry.timestamp).toLocaleDateString('ar-EG')}) \n\n ${fallbackData.summary.analysisText}`
+                ...data.summary,
+                analysisText: `(استرجاع من الذاكرة - تطابق ${(maxScore*100).toFixed(0)}%) \n\n ${data.summary.analysisText}`
             }
         };
     }
 
     return null;
+};
+
+// --- UTILS ---
+
+// Simple Jaccard Index for similarity
+const calculateSimilarity = (str1: string, str2: string): number => {
+    const set1 = new Set(str1.split(/\s+/).filter(w => w.length > 2));
+    const set2 = new Set(str2.split(/\s+/).filter(w => w.length > 2));
+    
+    if (set1.size === 0 || set2.size === 0) return 0;
+
+    const intersection = new Set([...set1].filter(x => set2.has(x)));
+    const union = new Set([...set1, ...set2]);
+    
+    return intersection.size / union.size;
+};
+
+// --- SYNC ---
+export const syncWithCloud = async (username: string) => {
+    if (!supabase) return;
+    const db = loadDB();
+    try {
+        await supabase.from('user_knowledge_base').upsert({
+            user_id: username,
+            data: db,
+            updated_at: new Date().toISOString()
+        });
+    } catch(e) { /* silent fail */ }
 };

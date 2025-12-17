@@ -18,6 +18,17 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ data, onFeedback }) =
       setFeedbackGiven(prev => ({ ...prev, [id]: true }));
   };
 
+  const getHostname = (url: string | undefined) => {
+      if (!url) return 'Link';
+      try {
+          // Ensure url has protocol for URL constructor
+          const validUrl = url.startsWith('http') ? url : `https://${url}`;
+          return new URL(validUrl).hostname.replace('www.', '');
+      } catch (e) {
+          return url || 'Link'; // Fallback
+      }
+  };
+
   return (
     <div className="animate-fade-in pb-12">
         {/* Header */}
@@ -153,7 +164,9 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ data, onFeedback }) =
                                                  <div className="p-1.5 bg-blue-500/10 rounded-full text-blue-400">
                                                     <Globe className="w-3 h-3" />
                                                  </div>
-                                                 <span className="font-bold text-slate-200 text-xs truncate max-w-[200px]">{new URL(source.url).hostname.replace('www.', '')}</span>
+                                                 <span className="font-bold text-slate-200 text-xs truncate max-w-[200px]">
+                                                    {getHostname(source.url)}
+                                                 </span>
                                             </div>
                                             <span className="font-bold text-blue-400 text-sm group-hover:underline mb-1 line-clamp-1">{source.title}</span>
                                             {source.snippet && <p className="text-[10px] text-slate-500 line-clamp-2 leading-relaxed">{source.snippet}</p>}
