@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Modality } from "@google/genai";
 import { WeeklySchedule, AnalysisResponse, GradeLevel, MotivationalMessage, VoiceTutorResponse } from "../types";
 
@@ -12,20 +13,39 @@ const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
-// Helper to retry calls if the model is overloaded (503)
+// Helper to retry calls if the model is overloaded (503) or rate limited (429)
 async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
   try {
     return await fn();
   } catch (error: any) {
-    // Check for 503 or overload messages
-    const isOverloaded = 
-      error?.status === 503 || 
-      (error?.message && (error.message.includes('503') || error.message.includes('overloaded')));
+    const message = error?.message || '';
+    const status = error?.status;
+    
+    // Check for 503 (Overloaded) or 429 (Rate Limit)
+    const isOverloaded = status === 503 || message.includes('503') || message.includes('overloaded');
+    const isRateLimited = status === 429 || message.includes('429') || message.includes('quota');
 
-    if (retries > 0 && isOverloaded) {
-      console.warn(`Gemini API overloaded. Retrying in ${delay}ms... (${retries} attempts left)`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      return callWithRetry(fn, retries - 1, delay * 2); // Exponential backoff
+    if (retries > 0 && (isOverloaded || isRateLimited)) {
+      let waitTime = delay;
+
+      // Intelligently parse retry delay from Gemini error message if available
+      // Example: "Please retry in 56.781289917s."
+      if (isRateLimited) {
+         const match = message.match(/retry in (\d+(\.\d+)?)s/);
+         if (match && match[1]) {
+             // Add 1 second buffer to the suggested delay
+             waitTime = Math.ceil(parseFloat(match[1]) * 1000) + 1000;
+             console.warn(`Rate limit hit. Waiting ${Math.round(waitTime/1000)}s as requested by API.`);
+         } else {
+             // Default backoff for rate limit if no time provided
+             waitTime = delay * 2; 
+         }
+      }
+
+      console.warn(`Gemini API Error (${status}). Retrying in ${waitTime}ms... (${retries} attempts left)`);
+      
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+      return callWithRetry(fn, retries - 1, isRateLimited ? waitTime : delay * 1.5); 
     }
     throw error;
   }
@@ -153,8 +173,8 @@ export const analyzeDayAndPlan = async (
 };
 
 /**
- * Fetches a brand new, unique inspiration every time it's called.
- * Uses Google Search Grounding to ensure freshness and variety.
+ * Fetches a brand new, unique inspiration.
+ * Uses fallback if API quota is exhausted to prevent app crash.
  */
 export const getFreshInspiration = async (): Promise<MotivationalMessage> => {
     // Generate a random seed based on time to ensure prompt variation
@@ -172,32 +192,39 @@ export const getFreshInspiration = async (): Promise<MotivationalMessage> => {
     3. يجب أن يكون النص باللغة العربية الفصحى المؤثرة.
     `;
 
-    return callWithRetry(async () => {
-      try {
-          const response = await ai.models.generateContent({
-              model: "gemini-2.5-flash",
-              contents: prompt,
-              config: {
-                  tools: [{googleSearch: {}}],
-                  safetySettings: SAFETY_SETTINGS,
-                  // responseMimeType: "application/json" cannot be used with tools
-              }
-          });
+    try {
+        return await callWithRetry(async () => {
+            const response = await ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt,
+                config: {
+                    tools: [{googleSearch: {}}],
+                    safetySettings: SAFETY_SETTINGS,
+                }
+            });
 
-          let text = response.text;
-          if (!text) throw new Error("No inspiration generated");
-          
-          text = text.trim();
-          if (text.startsWith("```")) {
-               text = text.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
-          }
-          
-          return JSON.parse(text) as MotivationalMessage;
-      } catch (e) {
-          console.error("Failed to fetch fresh inspiration", e);
-          throw e; // Rethrow to allow retry logic to catch it or Dashboard to use fallback
-      }
-    });
+            let text = response.text;
+            if (!text) throw new Error("No inspiration generated");
+            
+            text = text.trim();
+            if (text.startsWith("```")) {
+                text = text.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
+            }
+            
+            return JSON.parse(text) as MotivationalMessage;
+        }, 1, 1000); // Only try once for inspiration to save quota
+    } catch (e) {
+        console.warn("Failed to fetch inspiration via API, using fallback.", e);
+        // Robust Fallback List
+        const fallbacks: MotivationalMessage[] = [
+            { text: "إِنَّ اللَّهَ لَا يُضِيعُ أَجْرَ الْمُحْسِنِينَ", source: "سورة التوبة", category: "religious" },
+            { text: "وما نيل المطالب بالتمني ... ولكن تؤخذ الدنيا غلابا", source: "أحمد شوقي", category: "wisdom" },
+            { text: "قليل دائم خير من كثير منقطع", source: "حديث شريف", category: "religious" },
+            { text: "النجاح هو مجموع مجهودات صغيرة تتكرر يوماً بعد يوم", source: "روبرت كولير", category: "scientific" },
+            { text: "فَإِنَّ مَعَ الْعُسْرِ يُسْرًا", source: "سورة الشرح", category: "religious" }
+        ];
+        return fallbacks[Math.floor(Math.random() * fallbacks.length)];
+    }
 };
 
 /**

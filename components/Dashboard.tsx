@@ -17,37 +17,55 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate }) => {
     const [inspiration, setInspiration] = useState<MotivationalMessage | null>(null);
     const [loadingQuote, setLoadingQuote] = useState(true);
 
-    // Fetch fresh inspiration on component mount (every reload/dashboard visit)
+    // Fetch inspiration with caching to avoid rate limits
     useEffect(() => {
         const fetchQuote = async () => {
+            // 1. Check Cache (Session Storage - clears when tab closes)
+            const CACHE_KEY = 'rafeeq_daily_quote_v2';
+            const CACHE_DURATION = 3600 * 1000; // 1 Hour
+
+            try {
+                const cachedRaw = sessionStorage.getItem(CACHE_KEY);
+                if (cachedRaw) {
+                    const cached = JSON.parse(cachedRaw);
+                    const age = Date.now() - cached.timestamp;
+                    
+                    if (age < CACHE_DURATION) {
+                        setInspiration(cached.data);
+                        setLoadingQuote(false);
+                        return; // Use cache
+                    }
+                }
+            } catch (e) {
+                console.warn("Cache read error", e);
+            }
+
+            // 2. Fetch Fresh if no cache or expired
             setLoadingQuote(true);
             try {
-                // Determine if we should use the last analysis message or fetch a new one.
-                // Since the user requested "Every time the user reloads... a NEW sentence",
-                // we prioritize fetching a fresh one over the stored analysis message,
-                // unless the analysis was JUST done (which we can't easily track here without timestamp).
-                // To satisfy the "new every time" request, we always fetch fresh.
                 const freshQuote = await getFreshInspiration();
                 setInspiration(freshQuote);
+                
+                // Save to cache
+                sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+                    data: freshQuote,
+                    timestamp: Date.now()
+                }));
             } catch (error) {
                 console.error("Error fetching quote", error);
-                // Fallback to last analysis if available, otherwise generic
-                if (lastAnalysis?.motivationalMessage) {
-                    setInspiration(lastAnalysis.motivationalMessage);
-                } else {
-                     setInspiration({
-                        text: "إن الله لا يضيع أجر من أحسن عملاً.",
-                        source: "سورة الكهف",
-                        category: "religious"
-                    });
-                }
+                // Last resort fallback (though service handles this now)
+                setInspiration({
+                    text: "إن الله لا يضيع أجر من أحسن عملاً.",
+                    source: "سورة الكهف",
+                    category: "religious"
+                });
             } finally {
                 setLoadingQuote(false);
             }
         };
 
         fetchQuote();
-    }, []); // Empty dependency array = runs on mount
+    }, []); 
     
     return (
         <div className="space-y-10 animate-fade-in">
