@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Modality } from "@google/genai";
 import { WeeklySchedule, AnalysisResponse, GradeLevel, MotivationalMessage, VoiceTutorResponse } from "../types";
 
@@ -12,6 +11,25 @@ const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
+
+// Helper to retry calls if the model is overloaded (503)
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
+  try {
+    return await fn();
+  } catch (error: any) {
+    // Check for 503 or overload messages
+    const isOverloaded = 
+      error?.status === 503 || 
+      (error?.message && (error.message.includes('503') || error.message.includes('overloaded')));
+
+    if (retries > 0 && isOverloaded) {
+      console.warn(`Gemini API overloaded. Retrying in ${delay}ms... (${retries} attempts left)`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return callWithRetry(fn, retries - 1, delay * 2); // Exponential backoff
+    }
+    throw error;
+  }
+}
 
 // The comprehensive system prompt provided by the user
 const SYSTEM_INSTRUCTION = `
@@ -98,38 +116,40 @@ export const analyzeDayAndPlan = async (
     **تذكير**: أخرج فقط JSON صالح.
   `;
 
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: {
-        tools: [{googleSearch: {}}],
-        systemInstruction: SYSTEM_INSTRUCTION,
-        safetySettings: SAFETY_SETTINGS,
-      }
-    });
-
-    let text = response.text;
-    
-    // Check for safety blocks or empty responses
-    if (!text) {
-        if (response.candidates && response.candidates.length > 0 && response.candidates[0].finishReason === 'SAFETY') {
-            throw new Error("عذراً، لم أتمكن من تحليل المدخلات لأنها قد تحتوي على محتوى محظور (فلتر الأمان). حاول صياغة الجملة بطريقة أخرى.");
+  return callWithRetry(async () => {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+          tools: [{googleSearch: {}}],
+          systemInstruction: SYSTEM_INSTRUCTION,
+          safetySettings: SAFETY_SETTINGS,
         }
-        throw new Error("Empty response from AI");
-    }
+      });
 
-    // Clean up potential markdown code blocks
-    text = text.trim();
-    if (text.startsWith("```")) {
-        text = text.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
-    }
+      let text = response.text;
+      
+      // Check for safety blocks or empty responses
+      if (!text) {
+          if (response.candidates && response.candidates.length > 0 && response.candidates[0].finishReason === 'SAFETY') {
+              throw new Error("عذراً، لم أتمكن من تحليل المدخلات لأنها قد تحتوي على محتوى محظور (فلتر الأمان). حاول صياغة الجملة بطريقة أخرى.");
+          }
+          throw new Error("Empty response from AI");
+      }
 
-    return JSON.parse(text) as AnalysisResponse;
-  } catch (error) {
-    console.error("Error analyzing day:", error);
-    throw error;
-  }
+      // Clean up potential markdown code blocks
+      text = text.trim();
+      if (text.startsWith("```")) {
+          text = text.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
+      }
+
+      return JSON.parse(text) as AnalysisResponse;
+    } catch (error) {
+      console.error("Error analyzing day:", error);
+      throw error;
+    }
+  });
 };
 
 /**
@@ -152,96 +172,97 @@ export const getFreshInspiration = async (): Promise<MotivationalMessage> => {
     3. يجب أن يكون النص باللغة العربية الفصحى المؤثرة.
     `;
 
-    try {
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-                tools: [{googleSearch: {}}],
-                safetySettings: SAFETY_SETTINGS,
-                // responseMimeType: "application/json" cannot be used with tools
-            }
-        });
+    return callWithRetry(async () => {
+      try {
+          const response = await ai.models.generateContent({
+              model: "gemini-2.5-flash",
+              contents: prompt,
+              config: {
+                  tools: [{googleSearch: {}}],
+                  safetySettings: SAFETY_SETTINGS,
+                  // responseMimeType: "application/json" cannot be used with tools
+              }
+          });
 
-        let text = response.text;
-        if (!text) throw new Error("No inspiration generated");
-        
-        text = text.trim();
-        if (text.startsWith("```")) {
-             text = text.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
-        }
-        
-        return JSON.parse(text) as MotivationalMessage;
-    } catch (e) {
-        console.error("Failed to fetch fresh inspiration", e);
-        // Fallback if AI/Net fails
-        return {
-            text: "استعن بالله ولا تعجز، فإن في الحركة بركة وفي السعي وصول.",
-            source: "حكمة",
-            category: "religious"
-        };
-    }
+          let text = response.text;
+          if (!text) throw new Error("No inspiration generated");
+          
+          text = text.trim();
+          if (text.startsWith("```")) {
+               text = text.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
+          }
+          
+          return JSON.parse(text) as MotivationalMessage;
+      } catch (e) {
+          console.error("Failed to fetch fresh inspiration", e);
+          throw e; // Rethrow to allow retry logic to catch it or Dashboard to use fallback
+      }
+    });
 };
 
 /**
  * Transcribes audio using Gemini 2.5 Flash.
  */
 export const transcribeAudio = async (base64Audio: string, mimeType: string = 'audio/webm'): Promise<string> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: {
-                parts: [
-                    {
-                        inlineData: {
-                            mimeType: mimeType,
-                            data: base64Audio
-                        }
-                    },
-                    {
-                        text: "Transcribe the audio exactly as spoken in Arabic."
-                    }
-                ]
-            },
-            config: {
-                safetySettings: SAFETY_SETTINGS,
-            }
-        });
-        return response.text || "";
-    } catch (error) {
-        console.error("Transcription error:", error);
-        throw new Error("تعذر تحويل الصوت إلى نص.");
-    }
+    return callWithRetry(async () => {
+      try {
+          const response = await ai.models.generateContent({
+              model: "gemini-2.5-flash",
+              contents: {
+                  parts: [
+                      {
+                          inlineData: {
+                              mimeType: mimeType,
+                              data: base64Audio
+                          }
+                      },
+                      {
+                          text: "Transcribe the audio exactly as spoken in Arabic."
+                      }
+                  ]
+              },
+              config: {
+                  safetySettings: SAFETY_SETTINGS,
+              }
+          });
+          return response.text || "";
+      } catch (error) {
+          console.error("Transcription error:", error);
+          throw new Error("تعذر تحويل الصوت إلى نص.");
+      }
+    });
 };
 
 /**
  * Generates speech from text using Gemini 2.5 Flash TTS.
  */
 export const generateSpeech = async (text: string): Promise<string> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash-preview-tts",
-            contents: {
-                parts: [{ text: text }]
-            },
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: 'Zephyr' } // Zephyr is usually good for calm/teacher tone
-                    }
-                },
-                safetySettings: SAFETY_SETTINGS,
-            }
-        });
+    return callWithRetry(async () => {
+      try {
+          const response = await ai.models.generateContent({
+              model: "gemini-2.5-flash-preview-tts",
+              contents: {
+                  parts: [{ text: text }]
+              },
+              config: {
+                  responseModalities: [Modality.AUDIO],
+                  speechConfig: {
+                      voiceConfig: {
+                          prebuiltVoiceConfig: { voiceName: 'Zephyr' } // Zephyr is usually good for calm/teacher tone
+                      }
+                  },
+                  safetySettings: SAFETY_SETTINGS,
+              }
+          });
 
-        const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!audioData) throw new Error("No audio returned");
-        return audioData;
-    } catch (error) {
-        console.error("TTS error:", error);
-        throw new Error("تعذر توليد الصوت.");
-    }
+          const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+          if (!audioData) throw new Error("No audio returned");
+          return audioData;
+      } catch (error) {
+          console.error("TTS error:", error);
+          throw new Error("تعذر توليد الصوت.");
+      }
+    });
 };
 
 /**
@@ -273,28 +294,30 @@ export const evaluateRecap = async (
     }
   `;
 
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: {
-        tools: [{googleSearch: {}}],
-        safetySettings: SAFETY_SETTINGS,
-        // responseMimeType: "application/json" cannot be used with tools
-      }
-    });
+  return callWithRetry(async () => {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+          tools: [{googleSearch: {}}],
+          safetySettings: SAFETY_SETTINGS,
+          // responseMimeType: "application/json" cannot be used with tools
+        }
+      });
 
-    let text = response.text;
-    if (!text) throw new Error("No evaluation generated");
-    
-    text = text.trim();
-    if (text.startsWith("```")) {
-        text = text.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
+      let text = response.text;
+      if (!text) throw new Error("No evaluation generated");
+      
+      text = text.trim();
+      if (text.startsWith("```")) {
+          text = text.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
+      }
+      
+      return JSON.parse(text) as VoiceTutorResponse;
+    } catch (e) {
+      console.error("Voice Tutor Error", e);
+      throw new Error("تعذر تقييم الشرح الصوتي حالياً.");
     }
-    
-    return JSON.parse(text) as VoiceTutorResponse;
-  } catch (e) {
-    console.error("Voice Tutor Error", e);
-    throw new Error("تعذر تقييم الشرح الصوتي حالياً.");
-  }
+  });
 };
