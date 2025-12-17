@@ -1,19 +1,8 @@
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Modality } from "@google/genai";
 import { WeeklySchedule, AnalysisResponse, GradeLevel, MotivationalMessage, VoiceTutorResponse } from "../types";
 
-// ------------------------------------------------------------------
-// إعداد مفتاح API
-// لتجنب توقف التطبيق، يرجى وضع مفتاح API الخاص بك هنا إذا لم يعمل process.env
-// ------------------------------------------------------------------
-const HARDCODED_API_KEY = "AIzaSyBUpulPXzeu9myyQE376o2O9wYo6ahDGNY"; // ضع مفتاحك هنا | Put your key here inside the quotes
-
-const getAI = () => {
-  const apiKey = process.env.API_KEY || HARDCODED_API_KEY;
-  if (!apiKey) {
-    throw new Error("مفتاح API مفقود. يرجى التأكد من إعداد process.env.API_KEY أو وضعه مباشرة في متغير HARDCODED_API_KEY داخل ملف services/geminiService.ts");
-  }
-  return new GoogleGenAI({ apiKey });
-};
+// يتم قراءة المفتاح الآن حصرياً من متغيرات البيئة (ملف .env)
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Safety settings to prevent blocking legitimate requests about stress/anxiety
 const SAFETY_SETTINGS = [
@@ -109,7 +98,6 @@ export const analyzeDayAndPlan = async (
   `;
 
   try {
-    const ai = getAI();
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
@@ -164,7 +152,6 @@ export const getFreshInspiration = async (): Promise<MotivationalMessage> => {
     `;
 
     try {
-        const ai = getAI();
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt,
@@ -200,7 +187,6 @@ export const getFreshInspiration = async (): Promise<MotivationalMessage> => {
  */
 export const transcribeAudio = async (base64Audio: string, mimeType: string = 'audio/webm'): Promise<string> => {
     try {
-        const ai = getAI();
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: {
@@ -232,7 +218,6 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string = 'a
  */
 export const generateSpeech = async (text: string): Promise<string> => {
     try {
-        const ai = getAI();
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
             contents: {
@@ -288,7 +273,6 @@ export const evaluateRecap = async (
   `;
 
   try {
-    const ai = getAI();
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt,
