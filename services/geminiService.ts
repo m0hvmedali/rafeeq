@@ -15,11 +15,11 @@ const SAFETY_SETTINGS = [
 let geminiCooldownUntil = 0;
 const COOLDOWN_PERIOD = 60000; // 1 Minute Cooldown on 429
 
-async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
-  // 1. Check Cooldown
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 2, delay = 1000): Promise<T> {
+  // 1. Check Cooldown FIRST
   if (Date.now() < geminiCooldownUntil) {
     const remaining = Math.ceil((geminiCooldownUntil - Date.now()) / 1000);
-    throw new Error(`Gemini is cooling down (429). Skipping for ${remaining}s.`);
+    throw new Error(`Gemini Cooldown Active (429). Skipping for ${remaining}s.`);
   }
 
   try {
@@ -27,25 +27,33 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000)
   } catch (error: any) {
     const message = error?.message || '';
     const status = error?.status;
+    const errorBody = JSON.stringify(error);
     
-    // 2. Identify Errors
-    const isRateLimited = status === 429 || message.includes('429') || message.includes('quota');
-    const isOverloaded = status === 503 || message.includes('503') || message.includes('overloaded');
+    // 2. Identify Critical Errors (NO RETRY)
+    // Check for 429, Quota, or Resource Exhausted in various formats
+    const isRateLimited = 
+        status === 429 || 
+        message.includes('429') || 
+        message.includes('quota') || 
+        message.includes('RESOURCE_EXHAUSTED') ||
+        errorBody.includes('RESOURCE_EXHAUSTED');
 
     // 3. Handle 429 (STOP RETRY + ACTIVATE COOLDOWN)
     if (isRateLimited) {
-      console.warn(`Gemini 429 (Rate Limit) detected. Activating cooldown for ${COOLDOWN_PERIOD/1000}s.`);
+      console.warn(`⛔ Gemini 429/Quota detected. Activating cooldown. Error: ${message.substring(0, 100)}...`);
       geminiCooldownUntil = Date.now() + COOLDOWN_PERIOD;
-      throw error; // Fail immediately to trigger orchestrator fallback
+      throw new Error("Gemini Rate Limit Hit - Switching to Fallback"); // Throw new simple error to avoid complex retry logic upstream
     }
 
-    // 4. Handle 503 (RETRY is okay)
+    // 4. Handle Overload (503) -> Retry is OK
+    const isOverloaded = status === 503 || message.includes('503') || message.includes('overloaded');
     if (retries > 0 && isOverloaded) {
-      console.warn(`Gemini API Overloaded (${status}). Retrying in ${delay}ms...`);
+      console.warn(`Gemini Overloaded (503). Retrying in ${delay}ms...`);
       await new Promise(resolve => setTimeout(resolve, delay));
-      return callWithRetry(fn, retries - 1, delay * 1.5); 
+      return callWithRetry(fn, retries - 1, delay * 2); 
     }
     
+    // Other errors -> Throw immediately
     throw error;
   }
 }
@@ -85,7 +93,7 @@ export const analyzeDayAndPlan = async (
   weeklySchedule: WeeklySchedule,
   nextDayName: string,
   gradeLevel: GradeLevel,
-  userContextString: string = "" // NEW: Accepts context
+  userContextString: string = "" 
 ): Promise<AnalysisResponse> => {
   
   const prompt = `
@@ -125,14 +133,12 @@ export const analyzeDayAndPlan = async (
 
       return JSON.parse(text) as AnalysisResponse;
     } catch (error) {
-      console.error("Error analyzing day:", error);
       throw error;
     }
   });
 };
 
 export const getFreshInspiration = async (profile?: InterestProfile): Promise<MotivationalMessage> => {
-    // 1. Determine topics based on user profile weights
     const seeds: string[] = ['Perseverance', 'Hope'];
     let bias = "General Wisdom";
 
@@ -176,7 +182,7 @@ export const getFreshInspiration = async (profile?: InterestProfile): Promise<Mo
             let text = response.text || "{}";
             text = text.trim().replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
             return JSON.parse(text) as MotivationalMessage;
-        }, 1, 1000);
+        }, 0); // No retries for quotes to be fast
     } catch (e) {
         return { text: "إِنَّ اللَّهَ لَا يُضِيعُ أَجْرَ الْمُحْسِنِينَ", source: "سورة التوبة", category: "religious" };
     }
