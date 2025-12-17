@@ -1,14 +1,7 @@
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Modality } from "@google/genai";
 import { WeeklySchedule, AnalysisResponse, GradeLevel, MotivationalMessage, VoiceTutorResponse } from "../types";
 
-// ------------------------------------------------------------------
-// هام: بناءً على طلبك لوضع المفتاح علناً داخل الكود.
-// يرجى استبدال process.env.API_KEY بمفتاحك الخاص كنص مباشر إذا رغبت بذلك.
-// مثال: const apiKey = "AIzaSy...";
-// ------------------------------------------------------------------
-const apiKey = process.env.API_KEY || "AIzaSyBUpulPXzeu9myyQE376o2O9wYo6ahDGNY"; 
-
-const ai = new GoogleGenAI({ apiKey });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Safety settings to prevent blocking legitimate requests about stress/anxiety
 const SAFETY_SETTINGS = [
