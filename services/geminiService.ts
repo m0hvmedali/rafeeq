@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Modality } from "@google/genai";
-import { WeeklySchedule, AnalysisResponse, GradeLevel, MotivationalMessage, VoiceTutorResponse } from "../types";
+import { WeeklySchedule, AnalysisResponse, GradeLevel, MotivationalMessage, VoiceTutorResponse, InterestProfile } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -119,15 +119,36 @@ export const analyzeDayAndPlan = async (
   });
 };
 
-export const getFreshInspiration = async (): Promise<MotivationalMessage> => {
-    const seeds = ['Islamic patience', 'Scientific focus', 'Stoic wisdom', 'Academic perseverance'];
+export const getFreshInspiration = async (profile?: InterestProfile): Promise<MotivationalMessage> => {
+    // 1. Determine topics based on user profile weights
+    const seeds: string[] = ['Perseverance', 'Hope'];
+    let bias = "General Wisdom";
+
+    if (profile) {
+        if (profile.religious > 6) {
+             seeds.push('Islamic patience', 'Quranic wisdom', 'Prophetic hadith about knowledge');
+             bias = "Islamic & Religious";
+        }
+        if (profile.scientific > 6) {
+             seeds.push('Scientific focus', 'Neuroscience of learning', 'Stoicism', 'Physics analogies');
+             bias = "Scientific & Analytical";
+        }
+        if (profile.philosophical > 6) {
+             seeds.push('Philosophy', 'Deep wisdom', 'Poetry');
+             bias = "Philosophical";
+        }
+    }
+
     const randomTopic = seeds[Math.floor(Math.random() * seeds.length)];
     const timeSeed = new Date().toISOString();
 
     const prompt = `
-    ابحث عن اقتباس ديني أو حكمة نادرة.
-    الموضوع: ${randomTopic} - ${timeSeed}.
-    JSON format: { "text": "...", "source": "...", "category": "religious" | "scientific" | "wisdom" }
+    ابحث عن اقتباس ملهم قصير أو حكمة عميقة.
+    الموضوع المفضل للمستخدم: ${bias}.
+    موضوع البحث المقترح: ${randomTopic} - ${timeSeed}.
+    
+    أخرج JSON فقط:
+    { "text": "...", "source": "...", "category": "religious" | "scientific" | "wisdom" | "philosophical" }
     `;
 
     try {

@@ -13,10 +13,11 @@ import { Logo } from './components/Logo';
 import { smartAnalyzeDay } from './services/orchestrator';
 import * as storage from './services/storage';
 import * as memoryStore from './services/memoryStore'; 
-import * as resilientDB from './services/resilientDB'; // NEW IMPORT
+import * as resilientDB from './services/resilientDB'; 
 import { updateStatsOnEntry, DEFAULT_PREFERENCES, DEFAULT_STATS } from './services/recommendationEngine';
 import { supabase } from './lib/supabase';
 import { Sparkles, LayoutDashboard, Calendar, PenTool, BookOpen, Settings, Cloud, CloudOff, Menu, X, Loader2, Send, Mic, MicOff, Brain, Mic2 } from 'lucide-react';
+import './index.css';
 
 const INITIAL_SCHEDULE: WeeklySchedule = {
   "السبت": [],
@@ -148,7 +149,7 @@ function App() {
       const tags: string[] = [];
       if (contentType === 'religious') tags.push('religious', 'quran');
       if (contentType === 'scientific') tags.push('scientific', 'psych');
-      if (contentType === 'philosophical') tags.push('philosophical');
+      if (contentType === 'philosophical' || contentType === 'wisdom') tags.push('philosophical', 'wisdom');
 
       // Update Memory & Intelligence
       const result = await memoryStore.recordInteraction(
@@ -244,7 +245,6 @@ function App() {
     
     try {
       // 1. Smart Analysis with Context (Using Orchestrator)
-      // The orchestrator now handles saving to ResilientDB internally if successful
       const result = await smartAnalyzeDay(
           dailyReflection, 
           schedule, 
@@ -255,8 +255,7 @@ function App() {
       );
       setAnalysis(result);
 
-      // 2. Memory Record & XP Update (The Big Interaction for Gamification)
-      // This records the *event* of analysis, separate from the content storage in ResilientDB
+      // 2. Memory Record & XP Update
       const memoryResult = await memoryStore.recordInteraction(
         currentUser.name,
         'analysis',
@@ -267,11 +266,11 @@ function App() {
         preferences.interestProfile
       );
 
-      // 3. Update local state with new XP/Stats
+      // 3. Update local state
       setStats(memoryResult.newStats);
       await storage.saveUserStats(currentUser.name, memoryResult.newStats);
 
-      // 4. Save Entry Data (Standard CRUD)
+      // 4. Save Entry Data
       await storage.saveDailyEntry(currentUser.name, dailyReflection, result);
       
       setCurrentView('report');
@@ -391,7 +390,13 @@ function App() {
 
         <main className="max-w-6xl mx-auto p-4 lg:p-12 relative z-10">
             {currentView === 'dashboard' && (
-                <Dashboard lastAnalysis={analysis} onNavigate={(v) => setCurrentView(v as View)} stats={stats} />
+                <Dashboard 
+                    lastAnalysis={analysis} 
+                    onNavigate={(v) => setCurrentView(v as View)} 
+                    stats={stats} 
+                    onFeedback={handleFeedback}
+                    preferences={preferences} // Pass preferences to Dashboard
+                />
             )}
 
             {currentView === 'daily' && (

@@ -1,22 +1,25 @@
 
 import React, { useState, useEffect } from 'react';
-import { AnalysisResponse, MotivationalMessage, UserStats } from '../types';
+import { AnalysisResponse, MotivationalMessage, UserStats, UserPreferences } from '../types';
 import { getFreshInspiration } from '../services/geminiService';
-import { Activity, Battery, Moon, Brain, ChevronLeft, Sparkles, Lightbulb, Quote, RefreshCw, Star } from 'lucide-react';
+import { Activity, Battery, Moon, Brain, ChevronLeft, Sparkles, Lightbulb, Quote, RefreshCw, Star, ThumbsUp, ThumbsDown } from 'lucide-react';
 
 interface DashboardProps {
     lastAnalysis: AnalysisResponse | null;
     onNavigate: (view: string) => void;
     stats: UserStats;
+    onFeedback: (contentType: any, type: 'like' | 'dislike') => void;
+    preferences?: UserPreferences;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats }) => {
+const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats, onFeedback, preferences }) => {
     const balance = lastAnalysis?.balanceScore || 75;
     const stress = lastAnalysis?.summary.stressLevel || 'low';
     
     // State for the dynamic daily quote
     const [inspiration, setInspiration] = useState<MotivationalMessage | null>(null);
     const [loadingQuote, setLoadingQuote] = useState(true);
+    const [quoteFeedback, setQuoteFeedback] = useState<'like' | 'dislike' | null>(null);
 
     // Fetch inspiration with caching (1 Hour Duration)
     useEffect(() => {
@@ -42,10 +45,11 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats }
                 console.warn("Cache read error, fetching fresh quote", e);
             }
 
-            // 2. Fetch Fresh
+            // 2. Fetch Fresh with Personalization
             setLoadingQuote(true);
             try {
-                const freshQuote = await getFreshInspiration();
+                // Pass the interest profile to get personalized quotes
+                const freshQuote = await getFreshInspiration(preferences?.interestProfile);
                 setInspiration(freshQuote);
                 localStorage.setItem(CACHE_KEY, JSON.stringify({
                     data: freshQuote,
@@ -65,7 +69,13 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats }
         };
 
         fetchQuote();
-    }, []); 
+    }, [preferences]); // Re-fetch if preferences deeply change (though practically this runs on mount/reload)
+
+    const handleQuoteFeedback = (type: 'like' | 'dislike') => {
+        if (quoteFeedback || !inspiration) return; // Prevent double feedback
+        setQuoteFeedback(type);
+        onFeedback(inspiration.category || 'wisdom', type);
+    };
     
     return (
         <div className="space-y-10 animate-fade-in">
@@ -103,7 +113,7 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats }
             </div>
 
             {/* Wisdom / Tip of the Day - Dynamic Section */}
-            <div className="glass-panel p-6 rounded-[24px] border border-gold-500/20 bg-gradient-to-r from-gold-900/10 to-transparent relative overflow-hidden transition-all hover:border-gold-500/40 min-h-[160px] flex items-center">
+            <div className="glass-panel p-6 rounded-[24px] border border-gold-500/20 bg-gradient-to-r from-gold-900/10 to-transparent relative overflow-hidden transition-all hover:border-gold-500/40 min-h-[160px] flex items-center group">
                 <div className="absolute top-0 left-0 p-4 opacity-5">
                     <Quote className="w-24 h-24 text-gold-500" />
                 </div>
@@ -130,7 +140,29 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats }
                                 )}
                             </div>
                             <p className="text-xl md:text-2xl font-serif text-slate-200 leading-relaxed">"{inspiration.text}"</p>
-                            <p className="text-sm text-slate-500 mt-2 font-medium">— {inspiration.source}</p>
+                            <div className="flex justify-between items-center mt-2">
+                                <p className="text-sm text-slate-500 font-medium">— {inspiration.source}</p>
+                                
+                                {/* FEEDBACK BUTTONS */}
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => handleQuoteFeedback('like')} 
+                                        disabled={!!quoteFeedback}
+                                        className={`p-1.5 rounded-full transition-all ${quoteFeedback === 'like' ? 'text-green-400 bg-green-400/10' : 'text-slate-600 hover:text-green-400 hover:bg-white/5'}`}
+                                        title="محتوى ملهم"
+                                    >
+                                        <ThumbsUp className={`w-4 h-4 ${quoteFeedback === 'like' ? 'fill-current' : ''}`} />
+                                    </button>
+                                    <button 
+                                        onClick={() => handleQuoteFeedback('dislike')} 
+                                        disabled={!!quoteFeedback}
+                                        className={`p-1.5 rounded-full transition-all ${quoteFeedback === 'dislike' ? 'text-red-400 bg-red-400/10' : 'text-slate-600 hover:text-red-400 hover:bg-white/5'}`}
+                                        title="أقل من المتوقع"
+                                    >
+                                        <ThumbsDown className={`w-4 h-4 ${quoteFeedback === 'dislike' ? 'fill-current' : ''}`} />
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 ) : null}
