@@ -3,8 +3,6 @@ import { supabase } from '../lib/supabase';
 import { WeeklySchedule, AnalysisResponse, UserProfile } from '../types';
 
 // Helper to create a user-specific key
-// UPDATED: We now use the username directly as the key to allow fetching data from DB based on name login.
-// We remove the Device ID dependency to enable cross-device access via username.
 const getUserKey = (username: string) => `user_${username.trim().toLowerCase()}`;
 
 // --- USER PROFILE OPERATIONS ---
@@ -27,9 +25,19 @@ export const logoutUser = () => {
 // --- SCHEDULE OPERATIONS ---
 
 export const getSchedule = async (username: string): Promise<WeeklySchedule | null> => {
-  const userKey = getUserKey(username);
+  // استراتيجية "المحلي أولاً" (Local-First Strategy)
+  // نبحث في جهاز المستخدم أولاً. إذا وجدنا بيانات، نعتمدها فوراً لأنها الأحدث والأصح.
+  // هذا يمنع مشكلة "عودة الجدول الافتراضي" الناتجة عن تأخر السحابة أو وجود بيانات قديمة بها.
   
-  // 1. Try Supabase first (The Source of Truth)
+  const local = localStorage.getItem(`rafeeq_schedule_${username}`);
+  
+  if (local) {
+      console.log("Storage: Loaded schedule from LocalStorage (Primary)");
+      return JSON.parse(local);
+  }
+
+  // إذا لم نجد بيانات محلياً (جهاز جديد مثلاً)، نحاول جلبها من السحابة
+  const userKey = getUserKey(username);
   if (supabase) {
     try {
       const { data, error } = await supabase
@@ -39,27 +47,28 @@ export const getSchedule = async (username: string): Promise<WeeklySchedule | nu
         .single();
       
       if (data) {
-        // Update local cache if data found online
+        // وجدنا بيانات في السحابة، نحفظها محلياً فوراً للمستقبل
+        console.log("Storage: Loaded schedule from Cloud (Fallback)");
         localStorage.setItem(`rafeeq_schedule_${username}`, JSON.stringify(data.data));
         return data.data as WeeklySchedule;
       }
     } catch (e) {
-      console.warn('Supabase fetch failed, falling back to local.', e);
+      console.warn('Supabase fetch failed or no data found.', e);
     }
   }
 
-  // 2. Fallback to LocalStorage
-  const local = localStorage.getItem(`rafeeq_schedule_${username}`);
-  return local ? JSON.parse(local) : null;
+  return null;
 };
 
 export const saveSchedule = async (username: string, schedule: WeeklySchedule): Promise<void> => {
   const userKey = getUserKey(username);
   
-  // 1. Save to Local
+  // 1. الحفظ المحلي (فوري ومضمون)
+  // هذا يضمن أن المستخدم يرى ما كتبه حتى لو انقطع الإنترنت
   localStorage.setItem(`rafeeq_schedule_${username}`, JSON.stringify(schedule));
 
-  // 2. Save to Supabase
+  // 2. الحفظ السحابي (استبدال كامل)
+  // نقوم بمسح النسخة القديمة في السحابة واستبدالها بالنسخة الجديدة (Upsert)
   if (supabase) {
     try {
       await supabase
@@ -68,7 +77,9 @@ export const saveSchedule = async (username: string, schedule: WeeklySchedule): 
           user_id: userKey, 
           data: schedule,
           updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' });
+        }, { onConflict: 'user_id' }); // onConflict يضمن استبدال الصف القديم بالجديد
+        
+      console.log("Storage: Synced schedule to Cloud (Overwrite)");
     } catch (e) {
       console.error('Failed to sync schedule to Supabase', e);
     }
@@ -84,8 +95,19 @@ export interface DailyEntry {
 
 export const getDailyEntry = async (username: string, dateKey: string = new Date().toISOString().split('T')[0]): Promise<DailyEntry | null> => {
   const userKey = getUserKey(username);
+  
+  // نفس الاستراتيجية: المحلي هو الأساس
+  const reflection = localStorage.getItem(`rafeeq_reflection_${username}`) || '';
+  const analysisRaw = localStorage.getItem(`rafeeq_analysis_${username}`);
+  
+  if (reflection || analysisRaw) {
+      return {
+          reflection: reflection,
+          analysis: analysisRaw ? JSON.parse(analysisRaw) : null
+      };
+  }
 
-  // 1. Try Supabase first
+  // محاولة السحابة كبديل فقط
   if (supabase) {
     try {
       const { data, error } = await supabase
@@ -96,7 +118,6 @@ export const getDailyEntry = async (username: string, dateKey: string = new Date
         .single();
       
       if (data) {
-        // Cache locally
         localStorage.setItem(`rafeeq_reflection_${username}`, data.reflection || '');
         if (data.analysis) {
              localStorage.setItem(`rafeeq_analysis_${username}`, JSON.stringify(data.analysis));
@@ -111,19 +132,14 @@ export const getDailyEntry = async (username: string, dateKey: string = new Date
     }
   }
 
-  // 2. Fallback to LocalStorage
-  const reflection = localStorage.getItem(`rafeeq_reflection_${username}`) || '';
-  const analysisRaw = localStorage.getItem(`rafeeq_analysis_${username}`);
-  const analysis = analysisRaw ? JSON.parse(analysisRaw) : null;
-  
-  return { reflection, analysis };
+  return { reflection: '', analysis: null };
 };
 
 export const saveDailyEntry = async (username: string, reflection: string, analysis: AnalysisResponse | null): Promise<void> => {
   const userKey = getUserKey(username);
   const dateKey = new Date().toISOString().split('T')[0];
   
-  // 1. Local Save
+  // 1. حفظ محلي
   localStorage.setItem(`rafeeq_reflection_${username}`, reflection);
   if (analysis) {
     localStorage.setItem(`rafeeq_analysis_${username}`, JSON.stringify(analysis));
@@ -131,7 +147,7 @@ export const saveDailyEntry = async (username: string, reflection: string, analy
     localStorage.removeItem(`rafeeq_analysis_${username}`);
   }
 
-  // 2. Supabase Save
+  // 2. حفظ سحابي (استبدال)
   if (supabase) {
     try {
       await supabase

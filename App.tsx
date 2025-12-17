@@ -9,19 +9,20 @@ import LoginScreen from './components/LoginScreen';
 import FocusMode from './components/FocusMode';
 import VoiceRecap from './components/VoiceRecap';
 import { Logo } from './components/Logo';
-import { analyzeDayAndPlan } from './services/geminiService';
+// UPDATE: Import from orchestrator
+import { smartAnalyzeDay } from './services/orchestrator';
 import * as storage from './services/storage';
 import { supabase } from './lib/supabase';
 import { Sparkles, LayoutDashboard, Calendar, PenTool, BookOpen, Settings, Cloud, CloudOff, Menu, X, Loader2, Send, LogOut, ShieldAlert, Mic, MicOff, Brain, Mic2 } from 'lucide-react';
 
 const INITIAL_SCHEDULE: WeeklySchedule = {
-  "السبت": ["رياضيات (جبر)", "فيزياء"],
-  "الأحد": ["لغة عربية (نحو)", "تاريخ"],
-  "الاثنين": ["كيمياء (عضوية)", "أحياء"],
-  "الثلاثاء": ["لغة إنجليزية", "جغرافيا"],
-  "الأربعاء": ["دين", "رياضة بدنية"],
-  "الخميس": ["مراجعة عامة (تكرار متباعد)"],
-  "الجمعة": ["راحة", "قراءة حرة"]
+  "السبت": [],
+  "الأحد": [],
+  "الاثنين": [],
+  "الثلاثاء": [],
+  "الأربعاء": [],
+  "الخميس": [],
+  "الجمعة": []
 };
 
 type View = 'dashboard' | 'daily' | 'report' | 'planner' | 'resources' | 'focus' | 'voice-tutor' | 'settings';
@@ -38,6 +39,7 @@ function App() {
   
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
+  const [isDataLoaded, setIsDataLoaded] = useState(false); 
   const [error, setError] = useState<string | null>(null);
 
   // Voice Input State
@@ -46,7 +48,6 @@ function App() {
 
   // --- AUTH CHECK ---
   useEffect(() => {
-    // Immediate local storage check to avoid login flicker
     const savedUser = storage.getLastUser();
     if (savedUser) {
         setCurrentUser(savedUser);
@@ -58,6 +59,8 @@ function App() {
   useEffect(() => {
     const loadData = async () => {
       if (!currentUser) return;
+
+      setIsDataLoaded(false);
 
       try {
         const [savedSchedule, savedEntry] = await Promise.all([
@@ -80,6 +83,8 @@ function App() {
         }
       } catch (e) {
         console.error("Error loading user data", e);
+      } finally {
+        setIsDataLoaded(true);
       }
     };
     
@@ -90,19 +95,19 @@ function App() {
 
   // --- PERSISTENCE ---
   useEffect(() => {
-    if (currentUser && !initializing) {
+    if (currentUser && !initializing && isDataLoaded) {
       storage.saveSchedule(currentUser.name, schedule).catch(console.error);
     }
-  }, [schedule, currentUser, initializing]);
+  }, [schedule, currentUser, initializing, isDataLoaded]);
 
   useEffect(() => {
-    if (currentUser && !initializing) {
+    if (currentUser && !initializing && isDataLoaded) {
         const handler = setTimeout(() => {
             storage.saveDailyEntry(currentUser.name, dailyReflection, analysis);
         }, 1000);
         return () => clearTimeout(handler);
     }
-  }, [dailyReflection, analysis, currentUser, initializing]);
+  }, [dailyReflection, analysis, currentUser, initializing, isDataLoaded]);
 
   // --- LOGIC ---
   const handleLogin = (profile: UserProfile) => {
@@ -116,6 +121,7 @@ function App() {
       setSchedule(INITIAL_SCHEDULE);
       setDailyReflection('');
       setAnalysis(null);
+      setIsDataLoaded(false);
   };
 
   const getNextDayName = () => {
@@ -131,12 +137,15 @@ function App() {
     setError(null);
     
     try {
-      const result = await analyzeDayAndPlan(dailyReflection, schedule, getNextDayName(), currentUser.grade);
+      // UPDATE: Use smartAnalyzeDay orchestrator
+      const result = await smartAnalyzeDay(dailyReflection, schedule, getNextDayName(), currentUser.grade);
       setAnalysis(result);
       await storage.saveDailyEntry(currentUser.name, dailyReflection, result);
       setCurrentView('report');
     } catch (err: any) {
-      setError(err.message || "حدث خطأ أثناء التواصل مع النظام.");
+      console.error("Final Fallback Error:", err);
+      // Even if orchestrator fails completely (shouldn't happen due to static fallback), show message
+      setError("حدث خطأ غير متوقع في نظام التحليل. يرجى المحاولة لاحقاً.");
     } finally {
       setLoading(false);
     }

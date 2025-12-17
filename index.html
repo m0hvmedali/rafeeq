@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
   <head>
@@ -10,6 +11,135 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Cairo:wght@300;400;600;800&display=swap" rel="stylesheet">
+
+    <!-- Emergency Tailwind CDN to ensure UI works even if build fails -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              midnight: '#020202',
+              void: '#0a0a0a',
+              gold: {
+                400: '#FACC15',
+                500: '#EAB308',
+                600: '#CA8A04',
+                900: '#422006',
+              },
+              obsidian: '#111111',
+            },
+            fontFamily: {
+              sans: ['Cairo', 'sans-serif'],
+              serif: ['Amiri', 'serif'],
+            },
+            animation: {
+              'float': 'float 6s ease-in-out infinite',
+              'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'shimmer': 'shimmer 2.5s linear infinite',
+              'blob': 'blob 10s infinite',
+              'glow': 'glow 3s ease-in-out infinite alternate',
+              'fade-in': 'fadeIn 0.5s ease-out forwards',
+            },
+            keyframes: {
+              float: {
+                '0%, 100%': { transform: 'translateY(0)' },
+                '50%': { transform: 'translateY(-10px)' },
+              },
+              shimmer: {
+                '0%': { backgroundPosition: '200% 0' },
+                '100%': { backgroundPosition: '-200% 0' },
+              },
+              blob: {
+                '0%': { transform: 'translate(0px, 0px) scale(1)' },
+                '33%': { transform: 'translate(30px, -50px) scale(1.1)' },
+                '66%': { transform: 'translate(-20px, 20px) scale(0.9)' },
+                '100%': { transform: 'translate(0px, 0px) scale(1)' },
+              },
+              glow: {
+                '0%': { boxShadow: '0 0 5px rgba(234, 179, 8, 0.1)' },
+                '100%': { boxShadow: '0 0 20px rgba(234, 179, 8, 0.3), 0 0 10px rgba(234, 179, 8, 0.1)' }
+              },
+              fadeIn: {
+                '0%': { opacity: '0', transform: 'translateY(10px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      /* Force custom scrollbar in case Tailwind base styles miss it */
+      body {
+        background-color: #020202; /* Fallback midnight */
+        color: #e2e8f0; /* Fallback text */
+      }
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #0a0a0a; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #333; 
+        border-radius: 4px;
+        border: 2px solid #0a0a0a;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #EAB308;
+      }
+      
+      /* Glass Panel Utilities fallback */
+      .glass-panel {
+        background: rgba(10, 10, 10, 0.6);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+      }
+
+      .glass-input {
+        background: rgba(20, 20, 20, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(4px);
+        transition: all 0.3s ease;
+      }
+      
+      .glass-input:focus {
+        border-color: rgba(234, 179, 8, 0.5);
+        box-shadow: 0 0 15px rgba(234, 179, 8, 0.1);
+      }
+
+      .bg-gradient-mesh {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: -1;
+        background-color: #020202;
+        overflow: hidden;
+      }
+        
+      .bg-orb {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(80px);
+        opacity: 0.3;
+        animation: blob 20s infinite alternate;
+      }
+
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+    </style>
+
 <script type="importmap">
 {
   "imports": {
@@ -25,7 +155,8 @@
 }
 </script>
 </head>
-  <body>
+  <!-- Apply classes directly here to ensure background is present immediately -->
+  <body class="font-sans bg-midnight text-slate-200 antialiased overflow-x-hidden">
     <!-- Animated Background -->
     <div class="bg-gradient-mesh">
         <div class="bg-orb bg-indigo-900/30 w-96 h-96 top-0 left-0 -translate-x-1/2 -translate-y-1/2"></div>
