@@ -5,7 +5,11 @@ import { Play, Pause, RotateCcw, Volume2, VolumeX, Brain, Coffee } from 'lucide-
 const FOCUS_TIME = 25 * 60;
 const BREAK_TIME = 5 * 60;
 
-const FocusMode: React.FC = () => {
+interface FocusModeProps {
+    onCompleteSession?: () => void;
+}
+
+const FocusMode: React.FC<FocusModeProps> = ({ onCompleteSession }) => {
   const [timeLeft, setTimeLeft] = useState(FOCUS_TIME);
   const [isActive, setIsActive] = useState(false);
   const [mode, setMode] = useState<'focus' | 'break'>('focus');
@@ -70,6 +74,9 @@ const FocusMode: React.FC = () => {
     } else if (timeLeft === 0) {
       // Switch modes
       if (mode === 'focus') {
+        // Trigger completion callback ONLY when finishing a focus session
+        if (onCompleteSession) onCompleteSession();
+        
         setMode('break');
         setTimeLeft(BREAK_TIME);
       } else {
@@ -80,7 +87,7 @@ const FocusMode: React.FC = () => {
       // Optional: Play a chime sound here
     }
     return () => clearInterval(interval);
-  }, [isActive, timeLeft, mode]);
+  }, [isActive, timeLeft, mode, onCompleteSession]);
 
   // Cleanup audio on unmount
   useEffect(() => {

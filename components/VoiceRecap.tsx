@@ -6,6 +6,7 @@ import { evaluateRecap, transcribeAudio, generateSpeech } from '../services/gemi
 
 interface VoiceRecapProps {
   gradeLevel: GradeLevel;
+  onComplete?: (score: number) => void;
 }
 
 // Helper to convert Blob to Base64
@@ -54,7 +55,7 @@ async function decodeAudioData(
   return buffer;
 }
 
-const VoiceRecap: React.FC<VoiceRecapProps> = ({ gradeLevel }) => {
+const VoiceRecap: React.FC<VoiceRecapProps> = ({ gradeLevel, onComplete }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -125,6 +126,7 @@ const VoiceRecap: React.FC<VoiceRecapProps> = ({ gradeLevel }) => {
     try {
       const evaluation = await evaluateRecap(transcript, subject, gradeLevel);
       setResult(evaluation);
+      if (onComplete) onComplete(evaluation.score);
     } catch (e) {
       console.error(e);
       alert("حدث خطأ أثناء التصحيح. حاول مرة أخرى.");

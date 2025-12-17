@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { WeeklySchedule, AnalysisResponse, UserProfile, GradeLevel } from './types';
+import { WeeklySchedule, AnalysisResponse, UserProfile, GradeLevel, UserPreferences, UserStats } from './types';
 import ScheduleManager from './components/ScheduleManager';
 import AnalysisDisplay from './components/AnalysisDisplay';
 import Dashboard from './components/Dashboard';
@@ -8,12 +8,15 @@ import ResourcesLibrary from './components/ResourcesLibrary';
 import LoginScreen from './components/LoginScreen';
 import FocusMode from './components/FocusMode';
 import VoiceRecap from './components/VoiceRecap';
+import SettingsPanel from './components/SettingsPanel';
 import { Logo } from './components/Logo';
-// UPDATE: Import from orchestrator
 import { smartAnalyzeDay } from './services/orchestrator';
 import * as storage from './services/storage';
+import * as memoryStore from './services/memoryStore'; 
+import * as resilientDB from './services/resilientDB'; // NEW IMPORT
+import { updateStatsOnEntry, DEFAULT_PREFERENCES, DEFAULT_STATS } from './services/recommendationEngine';
 import { supabase } from './lib/supabase';
-import { Sparkles, LayoutDashboard, Calendar, PenTool, BookOpen, Settings, Cloud, CloudOff, Menu, X, Loader2, Send, LogOut, ShieldAlert, Mic, MicOff, Brain, Mic2 } from 'lucide-react';
+import { Sparkles, LayoutDashboard, Calendar, PenTool, BookOpen, Settings, Cloud, CloudOff, Menu, X, Loader2, Send, Mic, MicOff, Brain, Mic2 } from 'lucide-react';
 
 const INITIAL_SCHEDULE: WeeklySchedule = {
   "السبت": [],
@@ -37,6 +40,10 @@ function App() {
   const [dailyReflection, setDailyReflection] = useState('');
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   
+  // NEW: Preferences & Stats State
+  const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
+  const [stats, setStats] = useState<UserStats>(DEFAULT_STATS);
+
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [isDataLoaded, setIsDataLoaded] = useState(false); 
@@ -55,7 +62,7 @@ function App() {
     setInitializing(false);
   }, []);
 
-  // --- DATA LOADING ---
+  // --- DATA LOADING & ACCESSIBILITY ---
   useEffect(() => {
     const loadData = async () => {
       if (!currentUser) return;
@@ -63,24 +70,24 @@ function App() {
       setIsDataLoaded(false);
 
       try {
-        const [savedSchedule, savedEntry] = await Promise.all([
+        // Sync Resilient DB from Cloud (Background)
+        resilientDB.syncWithCloud(currentUser.name);
+
+        const [savedSchedule, savedEntry, savedPrefs, savedStats] = await Promise.all([
           storage.getSchedule(currentUser.name),
-          storage.getDailyEntry(currentUser.name)
+          storage.getDailyEntry(currentUser.name),
+          storage.getUserPreferences(currentUser.name),
+          storage.getUserStats(currentUser.name)
         ]);
         
-        if (savedSchedule) {
-            setSchedule(savedSchedule);
-        } else {
-            setSchedule(INITIAL_SCHEDULE);
-        }
-
+        if (savedSchedule) setSchedule(savedSchedule);
         if (savedEntry) {
           setDailyReflection(savedEntry.reflection);
           setAnalysis(savedEntry.analysis);
-        } else {
-            setDailyReflection('');
-            setAnalysis(null);
         }
+        if (savedPrefs) setPreferences(savedPrefs);
+        if (savedStats) setStats(savedStats);
+
       } catch (e) {
         console.error("Error loading user data", e);
       } finally {
@@ -93,21 +100,21 @@ function App() {
     }
   }, [currentUser]);
 
+  // Apply Theme & Font Size
+  useEffect(() => {
+      document.body.className = `font-sans antialiased overflow-x-hidden ${preferences.theme === 'high-contrast' ? 'bg-black text-white contrast-125' : 'bg-midnight text-slate-200'}`;
+      document.documentElement.style.fontSize = preferences.fontSize === 'xl' ? '18px' : preferences.fontSize === 'large' ? '17px' : '16px';
+  }, [preferences.theme, preferences.fontSize]);
+
   // --- PERSISTENCE ---
   useEffect(() => {
-    if (currentUser && !initializing && isDataLoaded) {
-      storage.saveSchedule(currentUser.name, schedule).catch(console.error);
+    if (currentUser && isDataLoaded) {
+      const handler = setTimeout(() => {
+          storage.saveDailyEntry(currentUser.name, dailyReflection, analysis);
+      }, 1000);
+      return () => clearTimeout(handler);
     }
-  }, [schedule, currentUser, initializing, isDataLoaded]);
-
-  useEffect(() => {
-    if (currentUser && !initializing && isDataLoaded) {
-        const handler = setTimeout(() => {
-            storage.saveDailyEntry(currentUser.name, dailyReflection, analysis);
-        }, 1000);
-        return () => clearTimeout(handler);
-    }
-  }, [dailyReflection, analysis, currentUser, initializing, isDataLoaded]);
+  }, [dailyReflection, analysis, currentUser, isDataLoaded]);
 
   // --- LOGIC ---
   const handleLogin = (profile: UserProfile) => {
@@ -124,6 +131,105 @@ function App() {
       setIsDataLoaded(false);
   };
 
+  const handleUpdatePreferences = (newPrefs: UserPreferences) => {
+      setPreferences(newPrefs);
+      if (currentUser) storage.saveUserPreferences(currentUser.name, newPrefs);
+  };
+
+  /**
+   * INTELLIGENT FEEDBACK LOOP
+   * This function is triggered when a user likes/dislikes content.
+   * It updates the memory.json via memoryStore and rewards XP.
+   */
+  const handleFeedback = async (contentType: any, type: 'like' | 'dislike') => {
+      if (!currentUser) return;
+
+      // Map content type to tags
+      const tags: string[] = [];
+      if (contentType === 'religious') tags.push('religious', 'quran');
+      if (contentType === 'scientific') tags.push('scientific', 'psych');
+      if (contentType === 'philosophical') tags.push('philosophical');
+
+      // Update Memory & Intelligence
+      const result = await memoryStore.recordInteraction(
+          currentUser.name,
+          'quote', // Or 'analysis_part'
+          `User feedback on ${contentType} content`,
+          tags,
+          type,
+          stats,
+          preferences.interestProfile
+      );
+
+      // Update State with new learned data
+      setStats(result.newStats);
+      setPreferences(prev => ({ ...prev, interestProfile: result.newProfile }));
+      
+      // Persist updates
+      await storage.saveUserStats(currentUser.name, result.newStats);
+      await storage.saveUserPreferences(currentUser.name, { ...preferences, interestProfile: result.newProfile });
+
+      if (result.newStats.level > stats.level) {
+          alert(`🎉 مذهل! تفاعلك ساهم في رفع مستواك إلى المستوى ${result.newStats.level}`);
+      }
+  };
+
+  // --- FOCUS SESSION COMPLETION ---
+  const handleFocusComplete = async () => {
+    if (!currentUser) return;
+
+    const result = await memoryStore.recordInteraction(
+        currentUser.name,
+        'focus_session',
+        'Completed a Focus Mode Session',
+        ['focus', 'productivity'],
+        null,
+        stats,
+        preferences.interestProfile
+    );
+
+    setStats(result.newStats);
+    await storage.saveUserStats(currentUser.name, result.newStats);
+    
+    alert(`👏 رائع! أكملت جلسة تركيز وحصلت على ${result.xpGained} نقطة XP`);
+  };
+
+  // --- VOICE RECAP COMPLETION ---
+  const handleVoiceRecapComplete = async (score: number) => {
+    if (!currentUser) return;
+
+    const result = await memoryStore.recordInteraction(
+        currentUser.name,
+        'voice_recap',
+        `Completed Voice Recap with score ${score}%`,
+        ['learning', 'voice'],
+        null,
+        stats,
+        preferences.interestProfile
+    );
+
+    setStats(result.newStats);
+    await storage.saveUserStats(currentUser.name, result.newStats);
+  };
+
+  // --- TASK COMPLETION ---
+  const handleTaskComplete = async (taskName: string) => {
+    if (!currentUser) return;
+
+    const result = await memoryStore.recordInteraction(
+        currentUser.name,
+        'schedule_task',
+        `Completed task: ${taskName}`,
+        ['productivity', 'schedule'],
+        null,
+        stats,
+        preferences.interestProfile
+    );
+
+    setStats(result.newStats);
+    await storage.saveUserStats(currentUser.name, result.newStats);
+  };
+
   const getNextDayName = () => {
     const date = new Date();
     date.setDate(date.getDate() + 1);
@@ -137,14 +243,45 @@ function App() {
     setError(null);
     
     try {
-      // UPDATE: Use smartAnalyzeDay orchestrator
-      const result = await smartAnalyzeDay(dailyReflection, schedule, getNextDayName(), currentUser.grade);
+      // 1. Smart Analysis with Context (Using Orchestrator)
+      // The orchestrator now handles saving to ResilientDB internally if successful
+      const result = await smartAnalyzeDay(
+          dailyReflection, 
+          schedule, 
+          getNextDayName(), 
+          currentUser.grade,
+          preferences, // Pass context
+          stats // Pass stats context
+      );
       setAnalysis(result);
+
+      // 2. Memory Record & XP Update (The Big Interaction for Gamification)
+      // This records the *event* of analysis, separate from the content storage in ResilientDB
+      const memoryResult = await memoryStore.recordInteraction(
+        currentUser.name,
+        'analysis',
+        dailyReflection.substring(0, 50) + "...",
+        ['daily_journal', 'analysis'],
+        null, 
+        stats,
+        preferences.interestProfile
+      );
+
+      // 3. Update local state with new XP/Stats
+      setStats(memoryResult.newStats);
+      await storage.saveUserStats(currentUser.name, memoryResult.newStats);
+
+      // 4. Save Entry Data (Standard CRUD)
       await storage.saveDailyEntry(currentUser.name, dailyReflection, result);
+      
       setCurrentView('report');
+      
+      if (memoryResult.newStats.level > stats.level) {
+          alert(`🚀 مبروك! إصرارك رفع مستواك إلى ${memoryResult.newStats.level}`);
+      }
+
     } catch (err: any) {
-      console.error("Final Fallback Error:", err);
-      // Even if orchestrator fails completely (shouldn't happen due to static fallback), show message
+      console.error("Error:", err);
       setError("حدث خطأ غير متوقع في نظام التحليل. يرجى المحاولة لاحقاً.");
     } finally {
       setLoading(false);
@@ -154,61 +291,36 @@ function App() {
   // --- VOICE INPUT LOGIC ---
   const toggleVoiceInput = () => {
     if (isListening) {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
+      if (recognitionRef.current) recognitionRef.current.stop();
       setIsListening(false);
     } else {
       if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        alert("المتصفح لا يدعم تحويل الصوت لنص. يرجى استخدام Chrome أو Edge.");
+        alert("المتصفح لا يدعم تحويل الصوت لنص.");
         return;
       }
-      
       const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
       const recognition = new SpeechRecognition();
       recognition.lang = 'ar-EG';
       recognition.continuous = true;
       recognition.interimResults = true;
-
       recognition.onstart = () => setIsListening(true);
-      
       recognition.onresult = (event: any) => {
         let finalTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          }
+          if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
         }
-        if (finalTranscript) {
-           setDailyReflection(prev => prev + ' ' + finalTranscript);
-        }
+        if (finalTranscript) setDailyReflection(prev => prev + ' ' + finalTranscript);
       };
-
-      recognition.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
+      recognition.onerror = () => setIsListening(false);
+      recognition.onend = () => setIsListening(false);
       recognitionRef.current = recognition;
       recognition.start();
     }
   };
 
-  if (initializing) {
-    return (
-      <div className="min-h-screen bg-midnight flex items-center justify-center text-gold-500">
-        <Loader2 className="w-12 h-12 animate-spin" />
-      </div>
-    );
-  }
+  if (initializing) return <div className="min-h-screen bg-midnight flex items-center justify-center text-gold-500"><Loader2 className="w-12 h-12 animate-spin" /></div>;
 
-  if (!currentUser) {
-      return <LoginScreen onLogin={handleLogin} />;
-  }
+  if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
 
   // --- NAVIGATION CONFIG ---
   const NAV_ITEMS = [
@@ -223,11 +335,11 @@ function App() {
   ];
 
   return (
-    <div className="min-h-screen text-slate-200 flex font-sans selection:bg-gold-500/30 selection:text-gold-200">
+    <div className={`min-h-screen flex font-sans selection:bg-gold-500/30 selection:text-gold-200 ${preferences.theme === 'high-contrast' ? 'text-white' : 'text-slate-200'}`}>
       
-      {/* Sidebar (Desktop) */}
-      <aside className={`fixed inset-y-0 right-0 z-50 w-72 bg-midnight/80 backdrop-blur-xl border-l border-white/5 transform transition-transform duration-500 lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="p-8 flex items-center justify-between">
+      {/* Sidebar - Updated with Flexbox for scrolling */}
+      <aside className={`fixed inset-y-0 right-0 z-50 w-72 backdrop-blur-xl border-l border-white/5 transform transition-transform duration-500 lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'} ${preferences.theme === 'high-contrast' ? 'bg-black border-white' : 'bg-midnight/80'} flex flex-col h-full`}>
+        <div className="p-8 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3 group cursor-pointer">
                 <div className="w-12 h-12 bg-gradient-to-br from-gold-500/10 to-gold-700/10 rounded-xl flex items-center justify-center border border-gold-500/20 shadow-lg shadow-gold-500/10 group-hover:scale-110 transition-transform duration-300">
                     <Logo className="w-8 h-8" />
@@ -235,7 +347,6 @@ function App() {
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-white">رفيق</h1>
                     <span className="text-gold-500 text-[10px] font-medium tracking-widest uppercase block">الملاح الواعي</span>
-                    <span className="text-slate-500 text-[10px] block mt-1 truncate max-w-[100px]">{currentUser.name}</span>
                 </div>
             </div>
             <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden text-slate-400 hover:text-white transition-colors">
@@ -243,7 +354,7 @@ function App() {
             </button>
         </div>
 
-        <nav className="px-6 space-y-2 mt-2">
+        <nav className="px-6 space-y-2 mt-2 flex-1 overflow-y-auto no-scrollbar">
             {NAV_ITEMS.map(item => (
                 <button
                     key={item.id}
@@ -260,7 +371,7 @@ function App() {
             ))}
         </nav>
 
-        <div className="absolute bottom-0 w-full p-6 border-t border-white/5 space-y-4">
+        <div className="p-6 border-t border-white/5 space-y-4 shrink-0 mt-auto">
              <div className="flex items-center gap-2 justify-center text-xs text-slate-600 bg-black/40 py-2 rounded-lg border border-white/5">
                 {supabase ? <Cloud className="w-3 h-3 text-gold-500" /> : <CloudOff className="w-3 h-3" />}
                 {supabase ? 'متصل سحابياً' : 'تخزين محلي'}
@@ -270,22 +381,17 @@ function App() {
 
       {/* Main Content */}
       <div className="flex-1 lg:mr-72 relative">
-        {/* Mobile Header */}
         <header className="lg:hidden p-4 flex items-center justify-between bg-midnight/80 backdrop-blur border-b border-white/5 sticky top-0 z-40">
             <div className="flex items-center gap-2">
-                 <div className="w-8 h-8 rounded-lg flex items-center justify-center">
-                    <Logo className="w-6 h-6" />
-                </div>
+                 <div className="w-8 h-8 rounded-lg flex items-center justify-center"><Logo className="w-6 h-6" /></div>
                 <h1 className="text-lg font-bold">رفيق</h1>
             </div>
-            <button onClick={() => setIsMobileMenuOpen(true)} className="text-slate-300">
-                <Menu className="w-6 h-6" />
-            </button>
+            <button onClick={() => setIsMobileMenuOpen(true)} className="text-slate-300"><Menu className="w-6 h-6" /></button>
         </header>
 
         <main className="max-w-6xl mx-auto p-4 lg:p-12 relative z-10">
             {currentView === 'dashboard' && (
-                <Dashboard lastAnalysis={analysis} onNavigate={(v) => setCurrentView(v as View)} />
+                <Dashboard lastAnalysis={analysis} onNavigate={(v) => setCurrentView(v as View)} stats={stats} />
             )}
 
             {currentView === 'daily' && (
@@ -305,13 +411,12 @@ function App() {
                                 <textarea
                                     value={dailyReflection}
                                     onChange={(e) => setDailyReflection(e.target.value)}
-                                    placeholder="كيف سارت أمور يومك؟ هل واجهت ضغوطاً؟ صف مشاعرك وأداءك بصدق... (يمكنك استخدام الميكروفون للتحدث)"
+                                    placeholder="كيف سارت أمور يومك؟ صف مشاعرك وأداءك بصدق..."
                                     className="glass-input w-full h-72 p-6 rounded-2xl text-lg text-slate-200 placeholder-slate-600 outline-none resize-none leading-loose mb-8 font-serif pb-16"
                                 />
                                 <button 
                                     onClick={toggleVoiceInput}
                                     className={`absolute bottom-12 left-6 p-3 rounded-full transition-all duration-300 ${isListening ? 'bg-red-500/20 text-red-500 animate-pulse border border-red-500/50' : 'bg-white/5 text-slate-400 hover:text-gold-400 border border-white/10'}`}
-                                    title="تحدث بدلاً من الكتابة"
                                 >
                                     {isListening ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
                                 </button>
@@ -320,7 +425,7 @@ function App() {
                             <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                                 <div className="flex items-center gap-2 text-xs text-slate-500 bg-white/5 px-3 py-1.5 rounded-full">
                                     <Sparkles className="w-3 h-3 text-gold-500" />
-                                    تحليل مدعوم بـ Gemini + بحث Google
+                                    تحليل مدعوم بـ Gemini + خوارزمية التعلم
                                 </div>
                                 <button
                                     onClick={handleAnalyze}
@@ -328,14 +433,10 @@ function App() {
                                     className="w-full md:w-auto bg-gradient-to-r from-gold-600 to-gold-500 hover:from-gold-500 hover:to-gold-400 text-black px-10 py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all transform hover:scale-105 shadow-lg shadow-gold-500/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                                 >
                                     {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                                    {loading ? 'جاري استدعاء الحكمة...' : 'تحليل وإرشاد'}
+                                    {loading ? 'تحليل وتحديث النقاط...' : 'تحليل وإرشاد'}
                                 </button>
                             </div>
-                            {error && (
-                                <div className="mt-6 p-4 rounded-xl bg-red-900/20 border border-red-500/30 text-red-200 text-sm text-center animate-pulse">
-                                    {error}
-                                </div>
-                            )}
+                            {error && <div className="mt-6 p-4 rounded-xl bg-red-900/20 border border-red-500/30 text-red-200 text-sm text-center animate-pulse">{error}</div>}
                         </div>
                     </div>
                 </div>
@@ -343,69 +444,43 @@ function App() {
 
             {currentView === 'report' && (
                 <>
-                    {analysis ? (
-                            <AnalysisDisplay data={analysis} />
-                    ) : (
+                    {analysis ? <AnalysisDisplay data={analysis} onFeedback={handleFeedback} /> : (
                         <div className="text-center py-24 animate-fade-in glass-panel rounded-3xl border-dashed border-2 border-slate-800">
                             <Sparkles className="w-20 h-20 text-slate-800 mx-auto mb-6" />
                             <h3 className="text-2xl font-bold text-slate-500 mb-3">بانتظار مدخلاتك</h3>
-                            <p className="text-slate-600 mb-8">لم تقم بتحليل يومك بعد. ابدأ الآن للحصول على التوجيه.</p>
-                            <button onClick={() => setCurrentView('daily')} className="text-gold-500 hover:text-gold-400 font-bold border-b border-gold-500/30 hover:border-gold-500 pb-1 transition-all">
-                                الذهاب لإدخال بيانات اليوم &larr;
-                            </button>
+                            <button onClick={() => setCurrentView('daily')} className="text-gold-500 hover:text-gold-400 font-bold border-b border-gold-500/30">الذهاب لإدخال بيانات اليوم &larr;</button>
                         </div>
                     )}
                 </>
             )}
 
             {currentView === 'voice-tutor' && currentUser && (
-                <VoiceRecap gradeLevel={currentUser.grade} />
+                <VoiceRecap gradeLevel={currentUser.grade} onComplete={handleVoiceRecapComplete} />
             )}
-
+            
             {currentView === 'focus' && (
-                <FocusMode />
+                <FocusMode onCompleteSession={handleFocusComplete} />
             )}
-
+            
             {currentView === 'planner' && (
                 <div className="animate-fade-in">
-                        <div className="text-center mb-10">
-                        <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-100 to-slate-400 mb-2">الجدول الأسبوعي</h2>
-                        <p className="text-slate-500">هندسة الوقت بوعي (Time Blocking)</p>
-                    </div>
-                    <ScheduleManager schedule={schedule} setSchedule={setSchedule} />
+                    <ScheduleManager 
+                        schedule={schedule} 
+                        setSchedule={setSchedule} 
+                        onCompleteTask={handleTaskComplete} 
+                    />
                 </div>
             )}
-
-            {currentView === 'resources' && <ResourcesLibrary />}
             
-            {currentView === 'settings' && (
-                    <div className="max-w-xl mx-auto glass-panel p-10 rounded-[30px] text-center border-t border-white/5 relative overflow-hidden group">
-                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-gold-500 to-transparent opacity-30 group-hover:opacity-100 transition-opacity"></div>
-                    <Settings className="w-16 h-16 mx-auto mb-6 text-slate-700 group-hover:text-gold-500 transition-colors duration-500" />
-                    <h3 className="text-2xl font-bold text-slate-300 mb-2">الإعدادات الشخصية</h3>
-                     <div className="space-y-4 text-slate-400 text-sm mb-8">
-                        <div className="bg-black/30 p-4 rounded-xl border border-white/5">
-                            <p className="mb-1 uppercase text-xs font-bold text-slate-600">الاسم المسجل</p>
-                            <span className="text-gold-400 text-lg font-bold">{currentUser.name}</span>
-                        </div>
-                        <div className="bg-black/30 p-4 rounded-xl border border-white/5">
-                            <p className="mb-1 uppercase text-xs font-bold text-slate-600">المرحلة الدراسية</p>
-                            <span className="text-gold-400 text-lg font-bold">{currentUser.grade}</span>
-                        </div>
-                    </div>
-                    
-                    <button 
-                        onClick={handleLogout}
-                        className="w-full bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-500/30 font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group"
-                    >
-                        <LogOut className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-                        تسجيل الخروج وحذف البيانات المحلية
-                    </button>
-                    <p className="mt-4 text-xs text-slate-600">
-                        <ShieldAlert className="w-3 h-3 inline ml-1" />
-                        سيتم الاحتفاظ ببياناتك في السحابة بناءً على اسمك.
-                    </p>
-                    </div>
+            {currentView === 'resources' && <ResourcesLibrary />}
+            {currentView === 'settings' && currentUser && (
+                <SettingsPanel 
+                    prefs={preferences} 
+                    stats={stats} 
+                    onUpdatePrefs={handleUpdatePreferences} 
+                    onLogout={handleLogout} 
+                    currentUser={currentUser}
+                />
             )}
         </main>
       </div>

@@ -1,3 +1,4 @@
+
 import { createClient } from '@supabase/supabase-js';
 
 // Hardcoded Supabase credentials as requested
@@ -13,20 +14,41 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
  * -- Table for storing weekly schedules
  * create table schedules (
  *   id uuid default gen_random_uuid() primary key,
- *   user_id text not null, -- Can be a UUID from auth or a generated device ID
+ *   user_id text not null, 
  *   data jsonb not null,
  *   updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
  *   unique(user_id)
  * );
  * 
- * -- Table for storing daily reflections and analysis
+ * -- Table for storing daily entries
  * create table daily_entries (
  *   id uuid default gen_random_uuid() primary key,
  *   user_id text not null,
- *   date text not null, -- ISO date string YYYY-MM-DD
+ *   date text not null,
  *   reflection text,
  *   analysis jsonb,
  *   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
  *   unique(user_id, date)
+ * );
+ * 
+ * -- NEW: Table for User Stats (Gamification)
+ * create table user_stats (
+ *   user_id text primary key,
+ *   xp integer default 0,
+ *   level integer default 1,
+ *   streak integer default 0,
+ *   last_login_date text,
+ *   total_entries integer default 0,
+ *   updated_at timestamp with time zone default timezone('utc'::text, now())
+ * );
+ * 
+ * -- NEW: Table for User Preferences & Algorithm Learning
+ * create table user_preferences (
+ *   user_id text primary key,
+ *   theme text default 'dark',
+ *   font_size text default 'normal',
+ *   reduce_motion boolean default false,
+ *   interest_profile jsonb, -- Stores the learned weights { religious: 5, scientific: 2 ... }
+ *   updated_at timestamp with time zone default timezone('utc'::text, now())
  * );
  */

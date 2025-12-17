@@ -1,15 +1,16 @@
 
 import React, { useState, useEffect } from 'react';
-import { AnalysisResponse, MotivationalMessage } from '../types';
+import { AnalysisResponse, MotivationalMessage, UserStats } from '../types';
 import { getFreshInspiration } from '../services/geminiService';
-import { Activity, Battery, Moon, Brain, ChevronLeft, Sparkles, Lightbulb, Quote, RefreshCw } from 'lucide-react';
+import { Activity, Battery, Moon, Brain, ChevronLeft, Sparkles, Lightbulb, Quote, RefreshCw, Star } from 'lucide-react';
 
 interface DashboardProps {
     lastAnalysis: AnalysisResponse | null;
     onNavigate: (view: string) => void;
+    stats: UserStats;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate }) => {
+const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats }) => {
     const balance = lastAnalysis?.balanceScore || 75;
     const stress = lastAnalysis?.summary.stressLevel || 'low';
     
@@ -17,48 +18,47 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate }) => {
     const [inspiration, setInspiration] = useState<MotivationalMessage | null>(null);
     const [loadingQuote, setLoadingQuote] = useState(true);
 
-    // Fetch inspiration with caching to avoid rate limits
+    // Fetch inspiration with caching (1 Hour Duration)
     useEffect(() => {
         const fetchQuote = async () => {
-            // 1. Check Cache (Session Storage - clears when tab closes)
-            const CACHE_KEY = 'rafeeq_daily_quote_v2';
-            const CACHE_DURATION = 3600 * 1000; // 1 Hour
+            const CACHE_KEY = 'rafeeq_quote_v3'; // Version 3 key
+            const ONE_HOUR = 60 * 60 * 1000;
 
             try {
-                const cachedRaw = sessionStorage.getItem(CACHE_KEY);
+                // 1. Try Cache
+                const cachedRaw = localStorage.getItem(CACHE_KEY);
                 if (cachedRaw) {
                     const cached = JSON.parse(cachedRaw);
-                    const age = Date.now() - cached.timestamp;
+                    const now = Date.now();
+                    const age = now - cached.timestamp;
                     
-                    if (age < CACHE_DURATION) {
+                    if (age < ONE_HOUR) {
                         setInspiration(cached.data);
                         setLoadingQuote(false);
-                        return; // Use cache
+                        return; 
                     }
                 }
             } catch (e) {
-                console.warn("Cache read error", e);
+                console.warn("Cache read error, fetching fresh quote", e);
             }
 
-            // 2. Fetch Fresh if no cache or expired
+            // 2. Fetch Fresh
             setLoadingQuote(true);
             try {
                 const freshQuote = await getFreshInspiration();
                 setInspiration(freshQuote);
-                
-                // Save to cache
-                sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+                localStorage.setItem(CACHE_KEY, JSON.stringify({
                     data: freshQuote,
                     timestamp: Date.now()
                 }));
             } catch (error) {
                 console.error("Error fetching quote", error);
-                // Last resort fallback (though service handles this now)
-                setInspiration({
+                const fallback: MotivationalMessage = {
                     text: "إن الله لا يضيع أجر من أحسن عملاً.",
                     source: "سورة الكهف",
                     category: "religious"
-                });
+                };
+                setInspiration(fallback);
             } finally {
                 setLoadingQuote(false);
             }
@@ -69,6 +69,7 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate }) => {
     
     return (
         <div className="space-y-10 animate-fade-in">
+            {/* Header + Gamification Status */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
                 <div>
                     <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-100 to-slate-400 mb-2">
@@ -76,15 +77,29 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate }) => {
                     </h2>
                     <p className="text-slate-500">نظرة شمولية على توازنك الحيوي والأكاديمي</p>
                 </div>
-                {!lastAnalysis && (
-                    <button 
-                        onClick={() => onNavigate('daily')}
-                        className="bg-gold-600 hover:bg-gold-500 text-black font-bold px-8 py-3 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-gold-500/20 transform hover:scale-105"
-                    >
-                        <Sparkles className="w-4 h-4" />
-                        ابدأ تحليل اليوم
-                    </button>
-                )}
+                
+                <div className="flex items-center gap-4">
+                     <div className="bg-white/5 border border-white/10 px-4 py-2 rounded-xl flex items-center gap-3">
+                        <div className="bg-gold-500/20 p-2 rounded-full text-gold-400">
+                             <Star className="w-4 h-4" />
+                        </div>
+                        <div>
+                             <div className="text-[10px] text-slate-500 uppercase font-bold">المستوى {stats.level}</div>
+                             <div className="w-24 h-1.5 bg-slate-800 rounded-full mt-1">
+                                 <div className="h-full bg-gold-500 rounded-full" style={{ width: `${(stats.xp % 100)}%` }}></div>
+                             </div>
+                        </div>
+                     </div>
+                     {!lastAnalysis && (
+                        <button 
+                            onClick={() => onNavigate('daily')}
+                            className="bg-gold-600 hover:bg-gold-500 text-black font-bold px-8 py-3 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-gold-500/20 transform hover:scale-105"
+                        >
+                            <Sparkles className="w-4 h-4" />
+                            ابدأ تحليل اليوم
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Wisdom / Tip of the Day - Dynamic Section */}

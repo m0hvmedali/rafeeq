@@ -2,10 +2,8 @@
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold, Modality } from "@google/genai";
 import { WeeklySchedule, AnalysisResponse, GradeLevel, MotivationalMessage, VoiceTutorResponse } from "../types";
 
-// Always use process.env.API_KEY directly as per @google/genai guidelines.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// Safety settings to prevent blocking legitimate requests about stress/anxiety
 const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
   { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -13,37 +11,26 @@ const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
-// Helper to retry calls if the model is overloaded (503) or rate limited (429)
 async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
   try {
     return await fn();
   } catch (error: any) {
     const message = error?.message || '';
     const status = error?.status;
-    
-    // Check for 503 (Overloaded) or 429 (Rate Limit)
     const isOverloaded = status === 503 || message.includes('503') || message.includes('overloaded');
     const isRateLimited = status === 429 || message.includes('429') || message.includes('quota');
 
     if (retries > 0 && (isOverloaded || isRateLimited)) {
       let waitTime = delay;
-
-      // Intelligently parse retry delay from Gemini error message if available
-      // Example: "Please retry in 56.781289917s."
       if (isRateLimited) {
          const match = message.match(/retry in (\d+(\.\d+)?)s/);
          if (match && match[1]) {
-             // Add 1 second buffer to the suggested delay
              waitTime = Math.ceil(parseFloat(match[1]) * 1000) + 1000;
-             console.warn(`Rate limit hit. Waiting ${Math.round(waitTime/1000)}s as requested by API.`);
          } else {
-             // Default backoff for rate limit if no time provided
              waitTime = delay * 2; 
          }
       }
-
-      console.warn(`Gemini API Error (${status}). Retrying in ${waitTime}ms... (${retries} attempts left)`);
-      
+      console.warn(`Gemini API Error (${status}). Retrying in ${waitTime}ms...`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
       return callWithRetry(fn, retries - 1, isRateLimited ? waitTime : delay * 1.5); 
     }
@@ -51,67 +38,33 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000)
   }
 }
 
-// The comprehensive system prompt provided by the user
 const SYSTEM_INSTRUCTION = `
-أنت "رفيق"، نظام ذكاء اصطناعي تحليلي متقدم وملاح واعي لطلاب المرحلة الثانوية في مصر. وظيفتك تحليل مدخلات المستخدم بعمق، والبحث في الويب عن أسباب مشكلاته وحلولها، وتقديم تقرير متكامل.
+أنت "رفيق"، نظام ذكاء اصطناعي تحليلي متكيف.
+وظيفتك:
+1. تحليل مدخلات الطالب بعمق.
+2. استخدام "سياق المستخدم" (User Context) لتخصيص الرد (نبرة الصوت، نوع المحتوى المفضل).
+3. البحث في الويب عن أسباب المشاكل.
 
-### 🔹 الأدوات المتاحة:
-1. **Google Search**: استخدم هذه الأداة **إجبارياً** في الحالات التالية:
-   - عندما يذكر المستخدم مشكلة (توتر، نسيان، أرق، تسويف) للبحث عن الأسباب والعلاجات.
-   - **للبحث عن رسالة تحفيزية**: يجب عليك في *كل مرة* البحث في الويب عن اقتباس أو قصة قصيرة أو آية أو حكمة تناسب *تحديداً* حالة المستخدم النفسية الحالية.
-   - **الروابط والمصادر**: عند تقديم روابط (URLs)، يجب أن تكون روابط حقيقية وصالحة تم العثور عليها عبر أداة البحث. يمنع منعاً باتاً تأليف روابط وهمية.
+### أدوات:
+- Google Search: إجباري للبحث عن الحلول والاقتباسات.
 
-### 🔹 البيانات المرجعية الثابتة (قاعدة المعرفة):
-* أبحاث أكاديمية عن الجداول الدراسية (Block Scheduling).
-* دراسات PISA وأنظمة التعليم المتفوقة.
-* أبحاث النوم (AAP – CDC).
-* علم الأعصاب المعرفي (Neuroscience).
-* المناهج المصرية الرسمية (مهم جداً: راعِ المرحلة الدراسية للطالب).
-* **المصحف الشريف كامل والسنة النبوية** (للدعم الروحي العميق).
+### مدخلات السياق (Context):
+ستتلقى ملف تعريف لاهتمامات المستخدم (ديني، علمي، فلسفي).
+- إذا كان الوزن "الديني" عالياً: استخدم لغة إيمانية، آيات قرآنية أكثر، وربط المشاكل بالروحانيات.
+- إذا كان الوزن "العلمي" عالياً: استخدم لغة تحليلية، إحصائيات، ودراسات (Neuroscience).
+- إذا كان الوزن "العملي" عالياً: اعطِ خطوات تنفيذية مباشرة (To-Do lists).
 
-### 🔹 المطلوب منك مع **كل رسالة**:
-
-#### 1️⃣ تحليل الويب (Web Analysis)
-* ابحث عن أعراض المستخدم.
-* حدد "الجذر المشكلة" (Root Cause) بناءً على نتائج البحث.
-* اقترح "علاجاً" (Remedy) عملياً.
-* أورد المصادر (روابط) التي وجدتها. **تنبيه:** تأكد من صحة الروابط.
-
-#### 2️⃣ التحفيز المخصص (Contextual Motivation)
-* ابحث في الويب عن مقولة/آية/حكمة تعالج شعور المستخدم الحالي.
-* حاول البحث عن اقتباسات *نادرة* أو *عميقة*.
-
-#### 3️⃣ التقرير المعتاد
-* تحليل الإنجاز والضغط.
-* خطة الغد (Time Blocking) - خذ في الاعتبار المواد الدراسية الخاصة بمرحلة الطالب.
-* **دعم قرآني مختار بعناية فائقة**.
-
-### 🔹 تنسيق الإخراج:
-يجب أن يكون الرد بصيغة JSON حصراً.
-الهيكل المطلوب:
+### تنسيق الإخراج JSON حصراً:
 {
-  "summary": {
-    "accomplishment": "string",
-    "effortType": "mental" | "emotional" | "physical",
-    "stressLevel": "low" | "medium" | "high",
-    "analysisText": "string (التحليل السلوكي والتعليمي المفصل)"
-  },
-  "webAnalysis": {
-    "rootCause": "string",
-    "suggestedRemedy": "string",
-    "sources": [ { "title": "string", "url": "string (MUST BE VALID)", "snippet": "string" } ]
-  },
-  "motivationalMessage": {
-    "text": "string",
-    "source": "string",
-    "category": "religious" | "scientific" | "philosophical"
-  },
-  "researchConnections": [ { "point": "string", "source": "string", "evidenceStrength": "strong" | "medium" | "limited", "type": "causal" | "correlational", "relevance": "string" } ],
-  "tomorrowPlan": [ { "time": "string", "task": "string", "method": "string", "type": "study" | "break" | "sleep" | "prayer" } ],
-  "recommendedMethods": [ { "subject": "string", "methodName": "string", "details": "string", "tools": ["string"] } ],
-  "psychologicalSupport": { "message": "string", "technique": "string" },
-  "quranicLink": { "verse": "string", "surah": "string", "behavioralExplanation": "string" },
-  "balanceScore": number (0-100)
+  "summary": { "accomplishment": "", "effortType": "mental"|"emotional"|"physical", "stressLevel": "low"|"medium"|"high", "analysisText": "" },
+  "webAnalysis": { "rootCause": "", "suggestedRemedy": "", "sources": [] },
+  "motivationalMessage": { "text": "", "source": "", "category": "religious"|"scientific"|"philosophical" },
+  "researchConnections": [],
+  "tomorrowPlan": [],
+  "recommendedMethods": [],
+  "psychologicalSupport": { "message": "", "technique": "" },
+  "quranicLink": { "verse": "", "surah": "", "behavioralExplanation": "" },
+  "balanceScore": 0
 }
 `;
 
@@ -119,21 +72,23 @@ export const analyzeDayAndPlan = async (
   dailyReflection: string,
   weeklySchedule: WeeklySchedule,
   nextDayName: string,
-  gradeLevel: GradeLevel
+  gradeLevel: GradeLevel,
+  userContextString: string = "" // NEW: Accepts context
 ): Promise<AnalysisResponse> => {
   
   const prompt = `
     بيانات المستخدم:
-    - المرحلة الدراسية: ${gradeLevel} (المنهج المصري)
+    - المرحلة: ${gradeLevel}
     - ملخص اليوم: "${dailyReflection}"
-    - جدول الأسبوع المعتاد: ${JSON.stringify(weeklySchedule)}
-    - اليوم التالي هو: ${nextDayName}
-
-    1. قم بالبحث في الويب عن مشاكل المستخدم وحلولها. تأكد من أن الروابط المقدمة في JSON صحيحة وتعمل.
-    2. ابحث عن اقتباس تحفيزي مميز.
-    3. قدم خطة للغد تراعي مواد ${gradeLevel} في مصر (مثل الفيزياء، الكيمياء، الأحياء، التاريخ، الخ حسب الشعبة إن وجدت أو المواد العامة).
+    - جدول الأسبوع: ${JSON.stringify(weeklySchedule)}
+    - الغد: ${nextDayName}
     
-    **تذكير**: أخرج فقط JSON صالح.
+    === ملف تفضيلات المستخدم (الخوارزمية) ===
+    ${userContextString}
+    ========================================
+    
+    بناءً على الملف أعلاه، خصص الرد ليتناسب مع اهتمامات المستخدم ونبرته المفضلة.
+    أخرج JSON صالح فقط.
   `;
 
   return callWithRetry(async () => {
@@ -149,16 +104,8 @@ export const analyzeDayAndPlan = async (
       });
 
       let text = response.text;
-      
-      // Check for safety blocks or empty responses
-      if (!text) {
-          if (response.candidates && response.candidates.length > 0 && response.candidates[0].finishReason === 'SAFETY') {
-              throw new Error("عذراً، لم أتمكن من تحليل المدخلات لأنها قد تحتوي على محتوى محظور (فلتر الأمان). حاول صياغة الجملة بطريقة أخرى.");
-          }
-          throw new Error("Empty response from AI");
-      }
+      if (!text) throw new Error("Empty response from AI");
 
-      // Clean up potential markdown code blocks
       text = text.trim();
       if (text.startsWith("```")) {
           text = text.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
@@ -172,24 +119,15 @@ export const analyzeDayAndPlan = async (
   });
 };
 
-/**
- * Fetches a brand new, unique inspiration.
- * Uses fallback if API quota is exhausted to prevent app crash.
- */
 export const getFreshInspiration = async (): Promise<MotivationalMessage> => {
-    // Generate a random seed based on time to ensure prompt variation
-    const seeds = ['Islamic patience', 'Scientific focus', 'Stoic wisdom', 'Academic perseverance', 'Prophetic habits'];
+    const seeds = ['Islamic patience', 'Scientific focus', 'Stoic wisdom', 'Academic perseverance'];
     const randomTopic = seeds[Math.floor(Math.random() * seeds.length)];
     const timeSeed = new Date().toISOString();
 
     const prompt = `
-    مهمتك: البحث في الويب عن اقتباس ديني (آية أو حديث) أو حكمة عميقة **غير مكررة ونادرة**.
-    الموضوع العشوائي للبحث: ${randomTopic} - ${timeSeed}.
-    
-    الشروط:
-    1. استخدم Google Search للعثور على شيء جديد. لا تستخدم المقولات المحفوظة الشائعة.
-    2. التنسيق المطلوب JSON فقط بدون أي علامات markdown: { "text": "...", "source": "...", "category": "religious" | "scientific" | "wisdom" }
-    3. يجب أن يكون النص باللغة العربية الفصحى المؤثرة.
+    ابحث عن اقتباس ديني أو حكمة نادرة.
+    الموضوع: ${randomTopic} - ${timeSeed}.
+    JSON format: { "text": "...", "source": "...", "category": "religious" | "scientific" | "wisdom" }
     `;
 
     try {
@@ -202,149 +140,51 @@ export const getFreshInspiration = async (): Promise<MotivationalMessage> => {
                     safetySettings: SAFETY_SETTINGS,
                 }
             });
-
-            let text = response.text;
-            if (!text) throw new Error("No inspiration generated");
-            
-            text = text.trim();
-            if (text.startsWith("```")) {
-                text = text.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
-            }
-            
+            let text = response.text || "{}";
+            text = text.trim().replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
             return JSON.parse(text) as MotivationalMessage;
-        }, 1, 1000); // Only try once for inspiration to save quota
+        }, 1, 1000);
     } catch (e) {
-        console.warn("Failed to fetch inspiration via API, using fallback.", e);
-        // Robust Fallback List
-        const fallbacks: MotivationalMessage[] = [
-            { text: "إِنَّ اللَّهَ لَا يُضِيعُ أَجْرَ الْمُحْسِنِينَ", source: "سورة التوبة", category: "religious" },
-            { text: "وما نيل المطالب بالتمني ... ولكن تؤخذ الدنيا غلابا", source: "أحمد شوقي", category: "wisdom" },
-            { text: "قليل دائم خير من كثير منقطع", source: "حديث شريف", category: "religious" },
-            { text: "النجاح هو مجموع مجهودات صغيرة تتكرر يوماً بعد يوم", source: "روبرت كولير", category: "scientific" },
-            { text: "فَإِنَّ مَعَ الْعُسْرِ يُسْرًا", source: "سورة الشرح", category: "religious" }
-        ];
-        return fallbacks[Math.floor(Math.random() * fallbacks.length)];
+        return { text: "إِنَّ اللَّهَ لَا يُضِيعُ أَجْرَ الْمُحْسِنِينَ", source: "سورة التوبة", category: "religious" };
     }
 };
 
-/**
- * Transcribes audio using Gemini 2.5 Flash.
- */
 export const transcribeAudio = async (base64Audio: string, mimeType: string = 'audio/webm'): Promise<string> => {
     return callWithRetry(async () => {
-      try {
           const response = await ai.models.generateContent({
               model: "gemini-2.5-flash",
-              contents: {
-                  parts: [
-                      {
-                          inlineData: {
-                              mimeType: mimeType,
-                              data: base64Audio
-                          }
-                      },
-                      {
-                          text: "Transcribe the audio exactly as spoken in Arabic."
-                      }
-                  ]
-              },
-              config: {
-                  safetySettings: SAFETY_SETTINGS,
-              }
+              contents: { parts: [ { inlineData: { mimeType: mimeType, data: base64Audio } }, { text: "Transcribe to Arabic." } ] },
+              config: { safetySettings: SAFETY_SETTINGS }
           });
           return response.text || "";
-      } catch (error) {
-          console.error("Transcription error:", error);
-          throw new Error("تعذر تحويل الصوت إلى نص.");
-      }
     });
 };
 
-/**
- * Generates speech from text using Gemini 2.5 Flash TTS.
- */
 export const generateSpeech = async (text: string): Promise<string> => {
     return callWithRetry(async () => {
-      try {
           const response = await ai.models.generateContent({
               model: "gemini-2.5-flash-preview-tts",
-              contents: {
-                  parts: [{ text: text }]
-              },
+              contents: { parts: [{ text: text }] },
               config: {
                   responseModalities: [Modality.AUDIO],
-                  speechConfig: {
-                      voiceConfig: {
-                          prebuiltVoiceConfig: { voiceName: 'Zephyr' } // Zephyr is usually good for calm/teacher tone
-                      }
-                  },
+                  speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
                   safetySettings: SAFETY_SETTINGS,
               }
           });
-
-          const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-          if (!audioData) throw new Error("No audio returned");
-          return audioData;
-      } catch (error) {
-          console.error("TTS error:", error);
-          throw new Error("تعذر توليد الصوت.");
-      }
+          return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
     });
 };
 
-/**
- * Voice Tutor: Evaluates a student's spoken explanation of a subject.
- */
-export const evaluateRecap = async (
-  transcript: string,
-  subject: string,
-  gradeLevel: GradeLevel
-): Promise<VoiceTutorResponse> => {
-  const prompt = `
-    أنت معلم مصري خبير وحازم ولكن مشجع.
-    الطالب في المرحلة: ${gradeLevel}.
-    المادة: ${subject}.
-    قام الطالب بشرح ما فهمه في التسجيل التالي: "${transcript}"
-
-    المطلوب:
-    1. قيم فهم الطالب من 100.
-    2. استخدم Google Search للتأكد من دقة المعلومات في المنهج المصري.
-    3. حدد المفاهيم الناقصة التي كان يجب ذكرها.
-    4. صحح أي معلومة خاطئة ذكرها الطالب.
-    
-    Output JSON format only (no markdown):
-    {
-      "score": number,
-      "feedback": "string (encouraging comment in Arabic)",
-      "missingConcepts": ["string", "string"],
-      "correction": "string (detailed correction if needed)"
-    }
-  `;
-
+export const evaluateRecap = async (transcript: string, subject: string, gradeLevel: GradeLevel): Promise<VoiceTutorResponse> => {
+  const prompt = `Evaluate student recap. Subject: ${subject}, Grade: ${gradeLevel}. Text: "${transcript}". Return JSON {score, feedback, missingConcepts, correction}`;
   return callWithRetry(async () => {
-    try {
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: prompt,
-        config: {
-          tools: [{googleSearch: {}}],
-          safetySettings: SAFETY_SETTINGS,
-          // responseMimeType: "application/json" cannot be used with tools
-        }
+        config: { tools: [{googleSearch: {}}], safetySettings: SAFETY_SETTINGS }
       });
-
-      let text = response.text;
-      if (!text) throw new Error("No evaluation generated");
-      
-      text = text.trim();
-      if (text.startsWith("```")) {
-          text = text.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
-      }
-      
-      return JSON.parse(text) as VoiceTutorResponse;
-    } catch (e) {
-      console.error("Voice Tutor Error", e);
-      throw new Error("تعذر تقييم الشرح الصوتي حالياً.");
-    }
+      let text = response.text || "{}";
+      text = text.trim().replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
+      return JSON.parse(text);
   });
 };

@@ -1,13 +1,23 @@
 
-import React from 'react';
-import { AnalysisResponse } from '../types';
-import { Quote, Activity, BookOpen, Clock, Zap, ShieldCheck, CheckCircle2, Globe, ExternalLink, Search, Sparkles } from 'lucide-react';
+import React, { useState } from 'react';
+import { AnalysisResponse, InterestProfile } from '../types';
+import { Quote, Activity, BookOpen, Clock, Zap, ShieldCheck, CheckCircle2, Globe, ExternalLink, Search, Sparkles, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { updateInterestProfile } from '../services/recommendationEngine';
 
 interface AnalysisDisplayProps {
   data: AnalysisResponse;
+  onFeedback: (contentType: 'religious' | 'scientific' | 'philosophical', type: 'like' | 'dislike') => void;
 }
 
-const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ data }) => {
+const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ data, onFeedback }) => {
+  const [feedbackGiven, setFeedbackGiven] = useState<Record<string, boolean>>({});
+
+  const handleFeedback = (id: string, contentType: any, type: 'like' | 'dislike') => {
+      if (feedbackGiven[id]) return;
+      onFeedback(contentType, type);
+      setFeedbackGiven(prev => ({ ...prev, [id]: true }));
+  };
+
   return (
     <div className="animate-fade-in pb-12">
         {/* Header */}
@@ -50,10 +60,19 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ data }) => {
                         </div>
 
                         {/* Quranic Verse Highlight - Enhanced */}
-                        <div className="my-10 relative z-10">
+                        <div className="my-10 relative z-10 group">
                             <div className="bg-gradient-to-r from-gold-900/20 to-transparent border-r-4 border-gold-500 p-8 rounded-l-2xl shadow-lg shadow-black/20">
-                                <div className="flex items-center gap-2 mb-4 text-gold-500/80 text-xs font-bold uppercase tracking-wider">
-                                    <Sparkles className="w-4 h-4" /> قبس من النور
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-2 text-gold-500/80 text-xs font-bold uppercase tracking-wider">
+                                        <Sparkles className="w-4 h-4" /> قبس من النور
+                                    </div>
+                                    {/* FEEDBACK BUTTONS */}
+                                    {!feedbackGiven['quran'] && (
+                                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button onClick={() => handleFeedback('quran', 'religious', 'like')} className="p-1 hover:text-green-400 text-slate-500"><ThumbsUp className="w-4 h-4" /></button>
+                                            <button onClick={() => handleFeedback('quran', 'religious', 'dislike')} className="p-1 hover:text-red-400 text-slate-500"><ThumbsDown className="w-4 h-4" /></button>
+                                        </div>
+                                    )}
                                 </div>
                                 <p className="font-serif text-3xl text-gold-100 mb-4 leading-relaxed drop-shadow-md">
                                     "{data.quranicLink.verse}"
@@ -67,10 +86,17 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ data }) => {
                         </div>
 
                         {/* Psych Support */}
-                        <div className="bg-indigo-900/10 border border-indigo-500/10 p-6 rounded-2xl relative z-10 flex items-start gap-4">
+                        <div className="bg-indigo-900/10 border border-indigo-500/10 p-6 rounded-2xl relative z-10 flex items-start gap-4 group">
                             <ShieldCheck className="w-6 h-6 text-indigo-400 flex-shrink-0 mt-1" />
-                            <div>
-                                <h4 className="text-indigo-300 font-bold mb-1 text-sm uppercase tracking-wide">همسة نفسية ({data.psychologicalSupport.technique})</h4>
+                            <div className="flex-1">
+                                <div className="flex justify-between items-start">
+                                    <h4 className="text-indigo-300 font-bold mb-1 text-sm uppercase tracking-wide">همسة نفسية ({data.psychologicalSupport.technique})</h4>
+                                    {!feedbackGiven['psych'] && (
+                                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button onClick={() => handleFeedback('psych', 'scientific', 'like')} className="p-1 hover:text-green-400 text-slate-500"><ThumbsUp className="w-3 h-3" /></button>
+                                        </div>
+                                    )}
+                                </div>
                                 <p className="text-slate-300 italic font-serif text-lg">"{data.psychologicalSupport.message}"</p>
                             </div>
                         </div>
@@ -86,7 +112,7 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ data }) => {
                     </div>
                 </article>
 
-                {/* Web Search Findings Section (Enhanced Grounding UI) */}
+                {/* Web Search Findings Section */}
                 {data.webAnalysis && (
                     <div className="glass-panel rounded-[30px] p-8 border border-blue-500/20 relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500 opacity-50"></div>
@@ -140,7 +166,7 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ data }) => {
                     </div>
                 )}
 
-                 {/* Tomorrow's Plan (Flowing below guidance) */}
+                 {/* Tomorrow's Plan */}
                  <div className="glass-panel rounded-3xl p-8 border border-emerald-500/10">
                     <h3 className="text-lg font-bold text-emerald-400 mb-6 flex items-center gap-2">
                         <Clock className="w-5 h-5" />

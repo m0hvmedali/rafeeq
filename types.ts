@@ -10,6 +10,54 @@ export interface UserProfile {
   grade: GradeLevel;
 }
 
+// --- NEW: User Preferences & Algorithm Profile ---
+export interface InterestProfile {
+  religious: number; // Weight 0-10
+  scientific: number;
+  philosophical: number;
+  practical: number;
+  emotional: number;
+  preferredTone: 'gentle' | 'firm' | 'analytical';
+}
+
+export interface UserPreferences {
+  theme: 'dark' | 'high-contrast';
+  fontSize: 'normal' | 'large' | 'xl';
+  reduceMotion: boolean;
+  interestProfile: InterestProfile;
+}
+
+// --- NEW: Gamification Stats ---
+export interface UserStats {
+  xp: number;
+  level: number;
+  streak: number;
+  lastLoginDate: string;
+  totalEntries: number;
+}
+
+// --- NEW: Memory Architecture (The 'memory.json' structure) ---
+export interface InteractionEntry {
+  id: string;
+  timestamp: number;
+  type: 'analysis' | 'quote' | 'voice_recap' | 'focus_session' | 'schedule_task';
+  contentSummary: string; // The user input or brief topic
+  aiResponseId?: string; // Reference to the response
+  userFeedback?: 'like' | 'dislike' | null;
+  tags: string[]; // e.g., ['religious', 'stress', 'morning']
+  xpGained: number;
+}
+
+export interface MemoryFile {
+  version: number;
+  lastUpdated: string;
+  interactions: InteractionEntry[];
+  learnedPatterns: {
+      favoriteTopics: string[];
+      recurringIssues: string[];
+  };
+}
+
 export interface PlanItem {
   time: string;
   task: string;
@@ -34,11 +82,12 @@ export interface ResearchConnection {
 
 export interface MotivationalMessage {
   text: string;
-  source: string;
+  source: string; 
   category: 'religious' | 'scientific' | 'philosophical' | 'wisdom';
 }
 
 export interface AnalysisResponse {
+  source?: 'ai' | 'memory' | 'static'; // Track where this data came from
   summary: {
     accomplishment: string;
     effortType: 'mental' | 'emotional' | 'physical';

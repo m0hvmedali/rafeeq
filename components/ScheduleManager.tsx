@@ -1,16 +1,19 @@
+
 import React, { useState } from 'react';
 import { DAYS_OF_WEEK, WeeklySchedule } from '../types';
-import { Plus, X, Calendar, Info, Clock } from 'lucide-react';
+import { Plus, X, Calendar, Info, Clock, CheckCircle2 } from 'lucide-react';
 
 interface ScheduleManagerProps {
   schedule: WeeklySchedule;
   setSchedule: (schedule: WeeklySchedule) => void;
+  onCompleteTask?: (taskName: string) => void;
 }
 
-const ScheduleManager: React.FC<ScheduleManagerProps> = ({ schedule, setSchedule }) => {
+const ScheduleManager: React.FC<ScheduleManagerProps> = ({ schedule, setSchedule, onCompleteTask }) => {
   const [selectedDay, setSelectedDay] = useState<string>(DAYS_OF_WEEK[0]);
   const [newSubject, setNewSubject] = useState('');
   const [showTips, setShowTips] = useState(false);
+  const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set());
 
   const handleAddSubject = () => {
     if (!newSubject.trim()) return;
@@ -31,8 +34,19 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({ schedule, setSchedule
     });
   };
 
+  const handleToggleComplete = (subject: string, index: number) => {
+    const taskKey = `${selectedDay}-${index}-${subject}`;
+    if (!completedTasks.has(taskKey)) {
+        // Mark as complete
+        const newSet = new Set(completedTasks);
+        newSet.add(taskKey);
+        setCompletedTasks(newSet);
+        if (onCompleteTask) onCompleteTask(subject);
+    }
+  };
+
   return (
-    <div className="glass-panel rounded-[30px] p-6 md:p-8 shadow-2xl shadow-black/50">
+    <div className="glass-panel rounded-[30px] p-6 md:p-8 shadow-2xl shadow-black/50 animate-fade-in">
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3 text-gold-400">
           <div className="p-2 bg-gold-500/10 rounded-xl">
@@ -110,20 +124,31 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({ schedule, setSchedule
             </div>
           )}
           
-          {schedule[selectedDay]?.map((subject, index) => (
-            <div
-              key={index}
-              className="group animate-fade-in inline-flex items-center gap-3 bg-white/5 hover:bg-white/10 border border-white/5 px-4 py-2.5 rounded-xl text-slate-300 transition-all hover:border-gold-500/30"
-            >
-              <span className="font-medium">{subject}</span>
-              <button
-                onClick={() => handleRemoveSubject(index)}
-                className="text-slate-600 hover:text-red-400 transition-colors opacity-60 group-hover:opacity-100 p-1"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
+          {schedule[selectedDay]?.map((subject, index) => {
+            const taskKey = `${selectedDay}-${index}-${subject}`;
+            const isCompleted = completedTasks.has(taskKey);
+            return (
+                <div
+                key={index}
+                className={`group animate-fade-in inline-flex items-center gap-3 border px-4 py-2.5 rounded-xl transition-all ${isCompleted ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-white/5 hover:bg-white/10 border-white/5 text-slate-300 hover:border-gold-500/30'}`}
+                >
+                <button 
+                    onClick={() => handleToggleComplete(subject, index)}
+                    disabled={isCompleted}
+                    className={`transition-colors ${isCompleted ? 'text-emerald-500 cursor-default' : 'text-slate-500 hover:text-emerald-400'}`}
+                >
+                    <CheckCircle2 className={`w-5 h-5 ${isCompleted ? 'fill-emerald-500/20' : ''}`} />
+                </button>
+                <span className={`font-medium ${isCompleted ? 'line-through opacity-70' : ''}`}>{subject}</span>
+                <button
+                    onClick={() => handleRemoveSubject(index)}
+                    className="text-slate-600 hover:text-red-400 transition-colors opacity-60 group-hover:opacity-100 p-1 border-r border-white/10 pr-2 mr-1"
+                >
+                    <X className="w-4 h-4" />
+                </button>
+                </div>
+            );
+          })}
         </div>
       </div>
     </div>
