@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { AnalysisResponse } from '../types.ts';
-import { Quote, Activity, BookOpen, Clock, Zap, ShieldCheck, CheckCircle2, Globe, ExternalLink, Search, Sparkles, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Quote, Activity, BookOpen, Clock, Zap, ShieldCheck, CheckCircle2, Globe, ExternalLink, Search, Sparkles, ThumbsUp, ThumbsDown, AlertTriangle, TrendingUp } from 'lucide-react';
 
 interface AnalysisDisplayProps {
   data: AnalysisResponse;
@@ -15,16 +15,6 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ data, onFeedback }) =
       if (feedbackGiven[id]) return;
       onFeedback(contentType, type);
       setFeedbackGiven(prev => ({ ...prev, [id]: true }));
-  };
-
-  const getHostname = (url: string | undefined) => {
-      if (!url) return 'Link';
-      try {
-          const validUrl = url.startsWith('http') ? url : `https://${url}`;
-          return new URL(validUrl).hostname.replace('www.', '');
-      } catch (e) {
-          return String(url) || 'Link'; 
-      }
   };
 
   if (!data || !data.summary) {
@@ -92,6 +82,35 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ data, onFeedback }) =
                     </div>
                 </article>
 
+                {/* Lesson Intelligence Summary Section */}
+                {data.lessonIntelligence && (
+                  <div className="glass-panel rounded-[30px] p-8 border border-gold-500/30 bg-gradient-to-br from-gold-900/10 to-transparent relative overflow-hidden">
+                    <div className="absolute -top-10 -left-10 w-40 h-40 bg-gold-500/5 rounded-full blur-3xl"></div>
+                    <h3 className="text-xl font-bold text-gold-400 mb-6 flex items-center gap-3">
+                        <TrendingUp className="w-6 h-6" />
+                        📌 ملخص تأمل الدرس (Lesson Reflection)
+                    </h3>
+                    <div className="flex items-center gap-4 mb-6">
+                        <span className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase border ${
+                            data.lessonIntelligence.difficulty === 'hard' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                            data.lessonIntelligence.difficulty === 'medium' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                            'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                        }`}>
+                            مستوى الصعوبة: {data.lessonIntelligence.difficulty === 'hard' ? 'صعب' : data.lessonIntelligence.difficulty === 'medium' ? 'متوسط' : 'سهل'}
+                        </span>
+                    </div>
+                    <p className="text-slate-200 text-lg leading-relaxed font-serif bg-white/5 p-6 rounded-2xl border border-white/5 italic">
+                        {data.lessonIntelligence.reflectionText}
+                    </p>
+                    {data.lessonIntelligence.researchInsights && (
+                        <div className="mt-6 flex items-start gap-3 text-sm text-slate-500">
+                            <Search className="w-5 h-5 text-gold-500/50 mt-1 flex-shrink-0" />
+                            <p className="leading-relaxed">{data.lessonIntelligence.researchInsights}</p>
+                        </div>
+                    )}
+                  </div>
+                )}
+
                 {data.webAnalysis && (
                     <div className="glass-panel rounded-[30px] p-8 border border-blue-500/20 relative overflow-hidden">
                         <h3 className="text-lg font-bold text-blue-400 mb-6 flex items-center gap-2">
@@ -129,7 +148,34 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ data, onFeedback }) =
                             <div className="glass-input py-2 rounded-xl text-blue-400 font-bold">{String(data.summary.effortType)}</div>
                         </div>
                     </div>
+
+                    <div className="pt-4 border-t border-white/5">
+                        <div className="flex justify-between items-center mb-4">
+                            <span className="text-sm font-bold text-slate-400">نقاط التوازن</span>
+                            <span className="text-2xl font-black text-gold-400">{data.balanceScore}</span>
+                        </div>
+                        <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-gold-600 to-gold-400" style={{ width: `${data.balanceScore}%` }}></div>
+                        </div>
+                    </div>
                 </div>
+
+                {data.tomorrowPlan && data.tomorrowPlan.length > 0 && (
+                    <div className="glass-panel rounded-3xl p-6">
+                        <h4 className="text-sm font-bold text-slate-200 mb-4 flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-emerald-400" /> مقترح لغدٍ أفضل
+                        </h4>
+                        <div className="space-y-3">
+                            {data.tomorrowPlan.slice(0, 3).map((item, i) => (
+                                <div key={i} className="bg-white/5 p-3 rounded-xl border border-white/5">
+                                    <div className="text-[10px] text-slate-500 font-bold mb-1">{item.time}</div>
+                                    <div className="text-sm font-bold text-slate-200">{item.task}</div>
+                                    <div className="text-[10px] text-emerald-500 font-bold mt-1 uppercase tracking-tighter">{item.method}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </aside>
         </div>
     </div>

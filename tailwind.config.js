@@ -1,3 +1,4 @@
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -10,6 +11,8 @@ export default {
         midnight: '#020202',
         void: '#0a0a0a',
         gold: {
+          100: '#FEF9C3',
+          200: '#FEF08A',
           400: '#FACC15',
           500: '#EAB308',
           600: '#CA8A04',
@@ -28,6 +31,7 @@ export default {
         'blob': 'blob 10s infinite',
         'glow': 'glow 3s ease-in-out infinite alternate',
         'fade-in': 'fadeIn 0.5s ease-out forwards',
+        'mesh-shift': 'mesh-shift 20s infinite alternate ease-in-out',
       },
       keyframes: {
         float: {
@@ -51,7 +55,11 @@ export default {
         fadeIn: {
           '0%': { opacity: '0', transform: 'translateY(10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
-        }
+        },
+        'mesh-shift': {
+          '0%': { transform: 'scale(1)' },
+          '100%': { transform: 'scale(1.1) rotate(2deg)' },
+        },
       }
     }
   },

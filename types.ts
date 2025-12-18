@@ -10,9 +10,8 @@ export interface UserProfile {
   grade: GradeLevel;
 }
 
-// --- NEW: User Preferences & Algorithm Profile ---
 export interface InterestProfile {
-  religious: number; // Weight 0-10
+  religious: number;
   scientific: number;
   philosophical: number;
   practical: number;
@@ -27,7 +26,6 @@ export interface UserPreferences {
   interestProfile: InterestProfile;
 }
 
-// --- NEW: Gamification Stats ---
 export interface UserStats {
   xp: number;
   level: number;
@@ -36,15 +34,14 @@ export interface UserStats {
   totalEntries: number;
 }
 
-// --- NEW: Memory Architecture (The 'memory.json' structure) ---
 export interface InteractionEntry {
   id: string;
   timestamp: number;
   type: 'analysis' | 'quote' | 'voice_recap' | 'focus_session' | 'schedule_task';
-  contentSummary: string; // The user input or brief topic
-  aiResponseId?: string; // Reference to the response
+  contentSummary: string;
+  aiResponseId?: string;
   userFeedback?: 'like' | 'dislike' | null;
-  tags: string[]; // e.g., ['religious', 'stress', 'morning']
+  tags: string[];
   xpGained: number;
 }
 
@@ -86,8 +83,14 @@ export interface MotivationalMessage {
   category: 'religious' | 'scientific' | 'philosophical' | 'wisdom';
 }
 
+export interface LessonIntelligence {
+  difficulty: 'easy' | 'medium' | 'hard';
+  reflectionText: string;
+  researchInsights: string;
+}
+
 export interface AnalysisResponse {
-  source?: 'ai' | 'memory' | 'static'; // Track where this data came from
+  source?: 'ai' | 'memory' | 'static';
   summary: {
     accomplishment: string;
     effortType: 'mental' | 'emotional' | 'physical';
@@ -112,6 +115,7 @@ export interface AnalysisResponse {
     surah: string;
     behavioralExplanation: string;
   };
+  lessonIntelligence?: LessonIntelligence;
   balanceScore: number;
 }
 

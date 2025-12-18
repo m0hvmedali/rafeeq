@@ -23,7 +23,6 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries = 1): Promise<T> {
   }
 }
 
-// Define the response schema for AnalysisResponse
 const analysisResponseSchema = {
   type: Type.OBJECT,
   properties: {
@@ -115,9 +114,18 @@ const analysisResponseSchema = {
         behavioralExplanation: { type: Type.STRING },
       },
     },
+    lessonIntelligence: {
+      type: Type.OBJECT,
+      properties: {
+        difficulty: { type: Type.STRING, description: "easy, medium, or hard" },
+        reflectionText: { type: Type.STRING },
+        researchInsights: { type: Type.STRING }
+      },
+      required: ["difficulty", "reflectionText"]
+    },
     balanceScore: { type: Type.NUMBER },
   },
-  required: ["summary", "tomorrowPlan", "balanceScore", "quranicLink"],
+  required: ["summary", "tomorrowPlan", "balanceScore", "quranicLink", "lessonIntelligence"],
 };
 
 export const analyzeDayAndPlan = async (
@@ -125,16 +133,38 @@ export const analyzeDayAndPlan = async (
   weeklySchedule: WeeklySchedule,
   nextDayName: string,
   gradeLevel: GradeLevel,
+  lessonData: { subject: string; lesson: string; solved: boolean; hours: number },
   userContextString: string = "" 
 ): Promise<AnalysisResponse> => {
   return callWithRetry(async () => {
+    const prompt = `
+      المرحلة الدراسية: ${gradeLevel}.
+      المادة: ${lessonData.subject}.
+      الدرس: ${lessonData.lesson}.
+      هل حل الأسئلة؟ ${lessonData.solved ? 'نعم' : 'لا'}.
+      ساعات المذاكرة: ${lessonData.hours}.
+      الانعكاس الشخصي: "${dailyReflection}".
+      الجدول الأسبوعي: ${JSON.stringify(weeklySchedule)}.
+      السياق الإضافي: ${userContextString}
+
+      مهمتك كـ 'رفيق':
+      1. ابحث باستخدام أداة Google Search عن صعوبة درس "${lessonData.lesson}" في مادة "${lessonData.subject}" لطلاب "${gradeLevel}".
+      2. حلل هل كانت ساعات المذاكرة (${lessonData.hours}) كافية بناءً على صعوبة الدرس وتحدياته الشائعة.
+      3. قم بتوليد تقرير "Lesson Reflection Summary" يناقش التوازن بين الجهد والصعوبة.
+      4. قدم الدعم النفسي والربط القرآني المعتاد.
+      5. ادمج خطة غدك (${nextDayName}) مع جدول المواد.
+      
+      أخرج النتيجة بصيغة JSON فقط متوافقة تماماً مع المخطط.
+    `;
+
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `المرحلة: ${gradeLevel}. الانعكاس: "${dailyReflection}". الجدول: ${JSON.stringify(weeklySchedule)}. السياق: ${userContextString}`,
+      contents: prompt,
       config: {
-        systemInstruction: "أنت 'رفيق'، مساعد ذكاء اصطناعي يحلل يوم الطالب بدقة بناءً على حالته النفسية وجدوله الدراسي. ادمج المواد المذكورة في الجدول في خطة غدك (${nextDayName}). قدم تحليلاً عميقاً يتضمن الدعم النفسي والربط القرآني المناسب. أخرج النتيجة بصيغة JSON حصراً.",
+        systemInstruction: "أنت 'رفيق'، مساعد ذكاء اصطناعي تعليمي ونفسي. استخدم ميزة البحث لتقييم صعوبة الدروس بدقة وتجنب التخمين. كن مشجعاً وواقعياً.",
         responseMimeType: "application/json",
-        responseSchema: analysisResponseSchema
+        responseSchema: analysisResponseSchema,
+        tools: [{ googleSearch: {} }]
       }
     });
     
