@@ -158,7 +158,7 @@ export const analyzeDayAndPlan = async (
     `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.5-flash-lite",
       contents: prompt,
       config: {
         systemInstruction: "أنت 'رفيق'، مساعد ذكاء اصطناعي تعليمي ونفسي. استخدم ميزة البحث لتقييم صعوبة الدروس بدقة وتجنب التخمين. كن مشجعاً وواقعياً.",
@@ -183,7 +183,7 @@ export const getFreshInspiration = async (profile?: InterestProfile): Promise<Mo
     try {
         return await callWithRetry(async () => {
             const response = await ai.models.generateContent({
-                model: "gemini-3-flash-preview",
+                model: "gemini-2.5-flash-lite",
                 contents: prompt,
                 config: { 
                     responseMimeType: "application/json",
@@ -207,7 +207,7 @@ export const getFreshInspiration = async (profile?: InterestProfile): Promise<Mo
 
 export const transcribeAudio = async (base64Audio: string, mimeType: string): Promise<string> => {
     const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.5-flash-lite",
         contents: [{ parts: [{ inlineData: { data: base64Audio, mimeType } }, { text: "Transcribe to Arabic." }] }]
     });
     return response.text || "";
@@ -227,7 +227,7 @@ export const generateSpeech = async (text: string): Promise<string> => {
 
 export const evaluateRecap = async (transcript: string, subject: string, gradeLevel: GradeLevel): Promise<VoiceTutorResponse> => {
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-2.5-flash-lite",
     contents: `قيم شرح الطالب لمادة ${subject}: "${transcript}". المرحلة: ${gradeLevel}`,
     config: { 
         responseMimeType: "application/json",

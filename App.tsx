@@ -74,12 +74,12 @@ export default function App() {
         ]);
         if (savedSchedule) setSchedule(savedSchedule);
         if (savedEntry) {
-          setDailyReflection(savedEntry.reflection);
+          setDailyReflection(savedEntry.reflection || '');
           if (savedEntry.analysis?.summary) setAnalysis(savedEntry.analysis);
         }
         if (savedPrefs) setPreferences(savedPrefs);
         
-        // حماية البيانات الرقمية من NaN
+        // تأمين البيانات الرقمية لمنع NaN
         setStats({
             xp: Number(savedStats?.xp) || 0,
             level: Number(savedStats?.level) || 1,
@@ -139,13 +139,16 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const safeHours = Number(hours);
+      const numericHours = Number(hours);
+      const safeHours = isNaN(numericHours) ? 1 : Math.max(1, numericHours);
+      
       const lessonData = { 
           subject, 
           lesson, 
           solved, 
-          hours: isNaN(safeHours) ? 1 : Math.max(1, safeHours) 
+          hours: safeHours 
       };
+      
       const result = await smartAnalyzeDay(
           dailyReflection, 
           schedule, 
@@ -155,6 +158,7 @@ export default function App() {
           preferences, 
           stats 
       );
+      
       if (result?.summary) {
         setAnalysis(result);
         const mem = await memoryStore.recordInteraction(currentUser.name, 'analysis', `${subject}: ${lesson}`, ['analysis', subject], null, stats, preferences.interestProfile);
