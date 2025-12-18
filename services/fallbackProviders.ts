@@ -1,50 +1,81 @@
 
 import { AnalysisResponse } from "../types.ts";
 
-const OPENROUTER_KEY = "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";
-
 /**
- * Ensures the response from any AI provider strictly follows the AnalysisResponse schema.
- * This prevents the "Invalid AI response format" error.
+ * دالة التحقق والإصلاح لضمان عدم تعطل الواجهة عند استلام بيانات ناقصة
  */
 const validateAndRepairResponse = (data: any): AnalysisResponse => {
-    const fallback = {
+    return {
         summary: {
-            accomplishment: data?.summary?.accomplishment || "تم تحليل مدخلاتك بنجاح",
+            accomplishment: data?.summary?.accomplishment || "تم استرجاع معلومات من مصادر خارجية",
             effortType: data?.summary?.effortType || "mental",
             stressLevel: data?.summary?.stressLevel || "medium",
-            analysisText: data?.summary?.analysisText || "نعتذر، حدث خلل بسيط في صياغة التحليل الكامل."
+            analysisText: data?.summary?.analysisText || "نواجه حالياً ضغطاً في خدمات الذكاء الاصطناعي، إليك نتائج البحث المتاحة لمساعدتك."
         },
-        webAnalysis: data?.webAnalysis || { rootCause: "غير محدد", suggestedRemedy: "الاستمرار في المحاولة", sources: [] },
-        motivationalMessage: data?.motivationalMessage || { text: "الاستمرار هو مفتاح النجاح.", source: "رفيق", category: "wisdom" },
-        tomorrowPlan: data?.tomorrowPlan || [{ time: "09:00 ص", task: "متابعة الجدول المعتاد", method: "Pomodoro", type: "study" }],
-        quranicLink: data?.quranicLink || { verse: "فَإِنَّ مَعَ الْعُسْرِ يُسْرًا", surah: "الشرح", behavioralExplanation: "ثق دائماً بالفرج القريب." },
-        balanceScore: data?.balanceScore || 70,
+        webAnalysis: data?.webAnalysis || { rootCause: "بحث خارجي", suggestedRemedy: "مراجعة المصادر أدناه", sources: [] },
+        motivationalMessage: data?.motivationalMessage || { text: "إِنَّ مَعَ الْعُسْرِ يُسْرًا", source: "سورة الشرح", category: "religious" },
+        tomorrowPlan: data?.tomorrowPlan || [{ time: "09:00 ص", task: "متابعة المهام الأساسية", method: "Pomodoro", type: "study" }],
+        quranicLink: data?.quranicLink || { verse: "فَإِنَّ مَعَ الْعُسْرِ يُسْرًا", surah: "الشرح", behavioralExplanation: "كل ضيق يتبعه فرج." },
+        balanceScore: Number(data?.balanceScore) || 70,
         researchConnections: data?.researchConnections || [],
         recommendedMethods: data?.recommendedMethods || [],
-        psychologicalSupport: data?.psychologicalSupport || { message: "أنت تقوم بعمل رائع.", technique: "التنفس العميق" }
+        psychologicalSupport: data?.psychologicalSupport || { message: "أنت تقوم بعمل رائع، استمر في السعي.", technique: "التنفس" },
+        lessonIntelligence: data?.lessonIntelligence || { difficulty: 'medium', reflectionText: "بناءً على نتائج البحث، الدرس يتطلب تركيزاً متوسطاً." }
     };
-    return fallback as AnalysisResponse;
 };
 
+/**
+ * دالة لجلب نتائج البحث من DuckDuckGo HTML كحل أخير بدون ذكاء اصطناعي
+ */
+const fetchDuckDuckGoResults = async (query: string) => {
+    try {
+        // نستخدم DuckDuckGo HTML كحل أخير (قد يتأثر بـ CORS في بعض البيئات)
+        const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://html.duckduckgo.com/html/?q=${query}`)}`);
+        if (!response.ok) return [];
+        
+        const json = await response.json();
+        const html = json.contents;
+        
+        // فلترة النتائج باستخدام Regex بسيط لاستخراج العناوين والروابط
+        const results: any[] = [];
+        const regex = /<a class="result__a" rel="noopener" href="([^"]+)">([^<]+)<\/a>.*?<a class="result__snippet" href="[^"]+">([^<]+)<\/a>/gs;
+        let match;
+        let count = 0;
+        
+        while ((match = regex.exec(html)) !== null && count < 5) {
+            results.push({
+                url: match[1],
+                title: match[2].trim(),
+                snippet: match[3].trim()
+            });
+            count++;
+        }
+        return results;
+    } catch (e) {
+        console.error("DDG Fetch failed", e);
+        return [];
+    }
+};
+
+/**
+ * استدعاء OpenRouter باستخدام النموذج المطلوب
+ */
 export const callOpenRouter = async (prompt: string): Promise<AnalysisResponse> => {
-    console.log("Rafeeq: Transitioning to OpenRouter (Xiaomi Mimo)...");
+    const OPENROUTER_API_KEY = process.env.API_KEY || "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"; // مفتاح احتياطي مدمج
+    
     try {
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
             headers: {
-                "Authorization": `Bearer ${OPENROUTER_KEY}`,
+                "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
                 "Content-Type": "application/json",
-                "HTTP-Referer": "https://rafeeq.app",
-                "X-Title": "Rafeeq Personal AI"
+                "HTTP-Referer": window.location.origin,
+                "X-Title": "Rafeeq AI"
             },
             body: JSON.stringify({
-                "model": "xiaomi/mimo-v2-flash:free",
+                "model": "qwen/qwen3-235b-a22b:free",
                 "messages": [
-                    { 
-                        "role": "system", 
-                        "content": "أنت 'رفيق'، مساعد ذكي للطالب العربي. حلل النص بدقة، ادمج الجدول الدراسي، والحالة النفسية، وقدم نصيحة من القرآن. أخرج النتيجة بصيغة JSON فقط." 
-                    },
+                    { "role": "system", "content": "أنت رفيق، مساعد ذكاء اصطناعي تعليمي. أخرج الرد دائماً بصيغة JSON مطابقة للمخطط المطلوب دون أي نص إضافي." },
                     { "role": "user", "content": prompt }
                 ],
                 "response_format": { "type": "json_object" }
@@ -52,84 +83,45 @@ export const callOpenRouter = async (prompt: string): Promise<AnalysisResponse> 
         });
 
         if (!response.ok) throw new Error(`OpenRouter Error: ${response.status}`);
+
         const data = await response.json();
         const content = data.choices[0].message.content;
         return validateAndRepairResponse(JSON.parse(content));
-    } catch (e) {
-        console.error("OpenRouter failed:", e);
-        throw e;
+    } catch (error) {
+        console.error("OpenRouter failed, falling back to DDG Search...");
+        throw error;
     }
 };
 
 /**
- * MANDATORY DUCKDUCKGO FALLBACK MODE
- * This is a rule-based reasoning engine that activates when ALL online AI models fail.
+ * وضع الطوارئ الأخير (Safe Mode) باستخدام DuckDuckGo
  */
 export const callDDGFallback = async (query: string): Promise<AnalysisResponse> => {
-    console.log("Rafeeq: Engaging Reasoning Mode (Logic-Based Fallback)...");
+    console.log("Rafeeq AI: Engaging DuckDuckGo Search Fallback...");
     
-    // Analyzing core sentiments from query
-    const sentiments = {
-        stress: query.includes("ضغط") || query.includes("امتحان") || query.includes("خوف") || query.includes("قلق"),
-        exhaustion: query.includes("تعب") || query.includes("إرهاق") || query.includes("نوم") || query.includes("كسل"),
-        success: query.includes("نجاح") || query.includes("خلصت") || query.includes("فهمت") || query.includes("درجة"),
-        spirituality: query.includes("صلاة") || query.includes("دين") || query.includes("قرآن")
-    };
+    const searchResults = await fetchDuckDuckGoResults(query);
+    const topResults = searchResults.slice(0, 3).map(r => `• ${r.title}: ${r.snippet}`).join('\n');
 
-    let analysisText = "";
-    if (sentiments.stress) analysisText = "نلاحظ وجود مؤشرات لضغط دراسي؛ الأبحاث تشير إلى أن تقسيم المهام (Chunking) يقلل من هرمون الكورتيزول المسؤول عن القلق.";
-    else if (sentiments.exhaustion) analysisText = "يبدو أن جسدك يطلب الراحة؛ النوم الكافي ليس رفاهية بل هو عملية ضرورية لتثبيت المعلومات (Consolidation) في الذاكرة.";
-    else if (sentiments.success) analysisText = "ما حققته اليوم رائع! الدوبامين الناتج عن الشعور بالإنجاز هو وقودك للأيام القادمة، استمتع بهذا النجاح الصغير.";
-    else analysisText = "كل يوم هو فرصة جديدة للتعلم. تذكر أن الرحلة الأكاديمية هي سباق ماراثون وليست عدواً سريعاً، التوازن هو سر الاستمرار.";
-
-    return {
+    return validateAndRepairResponse({
         source: 'static',
         summary: {
-            accomplishment: "تم التحليل باستخدام محرك القواعد المنطقي",
-            effortType: sentiments.stress ? "mental" : "emotional",
-            stressLevel: sentiments.stress ? "high" : sentiments.exhaustion ? "medium" : "low",
-            analysisText: analysisText
+            accomplishment: "وضع الأمان: تم جلب معلومات من محرك البحث مباشرة",
+            effortType: "mental",
+            stressLevel: "medium",
+            analysisText: searchResults.length > 0 
+                ? `لم نتمكن من الوصول للذكاء الاصطناعي، ولكن إليك ما وجدناه في الويب حول "${query}":\n\n${topResults}`
+                : "نعتذر، كافة قنوات الاتصال بالذكاء الاصطناعي والبحث معطلة حالياً. يرجى المحاولة لاحقاً."
         },
         webAnalysis: {
-            rootCause: sentiments.stress ? "ضغط زمني أو تراكم مهام" : "تحديات طبيعية في مسار التعلم",
-            suggestedRemedy: sentiments.stress ? "قاعدة الـ 5 دقائق: ابدأ في أي مهمة لمدة 5 دقائق فقط." : "المحافظة على وتيرة منتظمة.",
-            sources: []
+            rootCause: "انقطاع خدمات AI",
+            suggestedRemedy: "الاعتماد على المصادر اليدوية المرفقة",
+            sources: searchResults.map(r => ({ title: r.title, url: r.url, snippet: r.snippet }))
         },
         motivationalMessage: {
-            text: sentiments.stress ? "لَا يُكَلِّفُ اللَّهُ نَفْسًا إِلَّا وُسْعَهَا" : "وَأَن لَّيْسَ لِلْإِنسَانِ إِلَّا مَا سَعَىٰ",
+            text: "وَأَن لَّيْسَ لِلْإِنسَانِ إِلَّا مَا سَعَىٰ",
             source: "القرآن الكريم",
             category: "religious"
         },
-        researchConnections: [
-            {
-                point: "أهمية فترات الراحة",
-                source: "أبحاث علم النفس المعرفي",
-                evidenceStrength: "strong",
-                type: "causal",
-                relevance: "تحسين التركيز"
-            }
-        ],
-        tomorrowPlan: [
-            { time: "08:00 ص", task: "جلسة تركيز عميق", method: "Pomodoro", type: "study" },
-            { time: "11:00 ص", task: "مراجعة خفيفة", method: "Active Recall", type: "study" }
-        ],
-        recommendedMethods: [
-            {
-                subject: "عام",
-                methodName: "التكرار المتباعد",
-                details: "لمنع نسيان ما تمت مذاكرته اليوم.",
-                tools: ["Anki", "Flashcards"]
-            }
-        ],
-        psychologicalSupport: {
-            message: sentiments.stress ? "هدئ من روعك، الجبل يتكون من حصى صغيرة." : "أنت تسير في الطريق الصحيح.",
-            technique: "التنفس الصندوقي (4-4-4-4)"
-        },
-        quranicLink: {
-            verse: sentiments.stress ? "أَلَا بِذِكْرِ اللَّهِ تَطْمَئِنُّ الْقُلُوبُ" : "فَاصْبِرْ صَبْرًا جَمِيلًا",
-            surah: "الرعد / المعارج",
-            behavioralExplanation: "السكينة النفسية هي منطلق الإبداع الدراسي."
-        },
         balanceScore: 65
-    };
+    });
 };

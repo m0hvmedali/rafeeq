@@ -3,10 +3,19 @@ import { supabase } from '../lib/supabase';
 import { WeeklySchedule, AnalysisResponse, UserProfile, UserPreferences, UserStats } from '../types';
 import { DEFAULT_PREFERENCES, DEFAULT_STATS } from './recommendationEngine';
 
-// Helper to create a user-specific key
-const getUserKey = (username: string) => `user_${username.trim().toLowerCase()}`;
+// تحويل الاسم إلى معرف آمن تماماً للروابط (Base64) لتجنب أخطاء 406
+const getUserKey = (username: string) => {
+    if (!username) return 'guest_user';
+    try {
+        const cleanName = username.trim().toLowerCase();
+        // تشفير آمن يدعم العربية ولا يحتوي على رموز تسبب 406
+        const safeBase64 = btoa(encodeURIComponent(cleanName)).replace(/[^a-zA-Z0-9]/g, '');
+        return `user_${safeBase64.substring(0, 20)}`;
+    } catch (e) {
+        return `user_id_${username.length}`;
+    }
+};
 
-// --- USER PROFILE OPERATIONS ---
 export const saveUserProfile = (profile: UserProfile): void => {
     try {
         localStorage.setItem(`rafeeq_user_${profile.name}`, JSON.stringify(profile));
@@ -23,7 +32,6 @@ export const getLastUser = (): UserProfile | null => {
         const profile = localStorage.getItem(`rafeeq_user_${name}`);
         return profile ? JSON.parse(profile) : null;
     } catch (e) {
-        console.error("Failed to retrieve last user", e);
         return null;
     }
 };
@@ -32,12 +40,9 @@ export const logoutUser = () => {
     localStorage.removeItem('rafeeq_current_user_name');
 };
 
-// --- PREFERENCES & STATS OPERATIONS (NEW) ---
-
 export const getUserPreferences = async (username: string): Promise<UserPreferences> => {
     const localKey = `rafeeq_prefs_${username}`;
     const local = localStorage.getItem(localKey);
-    
     if (local) return JSON.parse(local);
 
     if (supabase) {
@@ -73,18 +78,17 @@ export const saveUserPreferences = async (username: string, prefs: UserPreferenc
 export const getUserStats = async (username: string): Promise<UserStats> => {
     const localKey = `rafeeq_stats_${username}`;
     const local = localStorage.getItem(localKey);
-    
     if (local) return JSON.parse(local);
 
     if (supabase) {
         const { data } = await supabase.from('user_stats').select('*').eq('user_id', getUserKey(username)).single();
         if (data) {
             const stats = {
-                xp: data.xp,
-                level: data.level,
-                streak: data.streak,
+                xp: Number(data.xp) || 0,
+                level: Number(data.level) || 1,
+                streak: Number(data.streak) || 0,
                 lastLoginDate: data.last_login_date,
-                totalEntries: data.total_entries
+                totalEntries: Number(data.total_entries) || 0
             };
             localStorage.setItem(localKey, JSON.stringify(stats));
             return stats;
@@ -94,77 +98,57 @@ export const getUserStats = async (username: string): Promise<UserStats> => {
 };
 
 export const saveUserStats = async (username: string, stats: UserStats): Promise<void> => {
-    localStorage.setItem(`rafeeq_stats_${username}`, JSON.stringify(stats));
+    const safeStats = {
+        xp: Number(stats.xp) || 0,
+        level: Number(stats.level) || 1,
+        streak: Number(stats.streak) || 0,
+        lastLoginDate: stats.lastLoginDate,
+        totalEntries: Number(stats.totalEntries) || 0
+    };
+    localStorage.setItem(`rafeeq_stats_${username}`, JSON.stringify(safeStats));
     if (supabase) {
         await supabase.from('user_stats').upsert({
             user_id: getUserKey(username),
-            xp: stats.xp,
-            level: stats.level,
-            streak: stats.streak,
-            last_login_date: stats.lastLoginDate,
-            total_entries: stats.totalEntries,
+            xp: safeStats.xp,
+            level: safeStats.level,
+            streak: safeStats.streak,
+            last_login_date: safeStats.lastLoginDate,
+            total_entries: safeStats.totalEntries,
             updated_at: new Date().toISOString()
         });
     }
 };
 
-// --- SCHEDULE OPERATIONS ---
-
 export const getSchedule = async (username: string): Promise<WeeklySchedule | null> => {
   try {
       const localKey = `rafeeq_schedule_${username}`;
       const local = localStorage.getItem(localKey);
-      
-      if (local && local !== "undefined" && local !== "null") {
-          try {
-              return JSON.parse(local);
-          } catch (parseError) {
-              localStorage.removeItem(localKey);
-          }
-      }
+      if (local && local !== "undefined") return JSON.parse(local);
 
-      const userKey = getUserKey(username);
       if (supabase) {
-        try {
-          const { data } = await supabase.from('schedules').select('data').eq('user_id', userKey).single();
+          const { data } = await supabase.from('schedules').select('data').eq('user_id', getUserKey(username)).single();
           if (data && data.data) {
             localStorage.setItem(localKey, JSON.stringify(data.data));
             return data.data as WeeklySchedule;
           }
-        } catch (cloudError) {
-          console.warn('Supabase fetch failed or no data found.', cloudError);
-        }
       }
   } catch (e) {
-      console.error("Storage: Critical error in getSchedule", e);
+      console.error("Storage error", e);
   }
   return null;
 };
 
 export const saveSchedule = async (username: string, schedule: WeeklySchedule): Promise<void> => {
-  const userKey = getUserKey(username);
   const localKey = `rafeeq_schedule_${username}`;
-  
-  try {
-      localStorage.setItem(localKey, JSON.stringify(schedule));
-  } catch (e) {
-      console.error("Storage: Failed to save to LocalStorage!", e);
-  }
-
+  localStorage.setItem(localKey, JSON.stringify(schedule));
   if (supabase) {
-    try {
       await supabase.from('schedules').upsert({ 
-          user_id: userKey, 
+          user_id: getUserKey(username), 
           data: schedule,
           updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' });
-    } catch (e) {
-      console.error('Failed to sync schedule to Supabase', e);
-    }
+      });
   }
 };
-
-// --- DAILY ENTRY OPERATIONS ---
 
 export interface DailyEntry {
   reflection: string;
@@ -172,57 +156,39 @@ export interface DailyEntry {
 }
 
 export const getDailyEntry = async (username: string, dateKey: string = new Date().toISOString().split('T')[0]): Promise<DailyEntry | null> => {
-  const userKey = getUserKey(username);
   const localRefKey = `rafeeq_reflection_${username}`;
   const localAnaKey = `rafeeq_analysis_${username}`;
   
+  const reflection = localStorage.getItem(localRefKey) || '';
+  const analysisRaw = localStorage.getItem(localAnaKey);
+  let analysis = null;
   try {
-      const reflection = localStorage.getItem(localRefKey) || '';
-      const analysisRaw = localStorage.getItem(localAnaKey);
-      
-      let analysis: AnalysisResponse | null = null;
-      if (analysisRaw) analysis = JSON.parse(analysisRaw);
+      analysis = analysisRaw ? JSON.parse(analysisRaw) : null;
+  } catch(e) {}
 
-      if (reflection || analysis) {
-          return { reflection, analysis };
-      }
-
-      if (supabase) {
-        const { data } = await supabase.from('daily_entries').select('reflection, analysis').eq('user_id', userKey).eq('date', dateKey).single();
+  if (supabase) {
+    try {
+        const { data } = await supabase.from('daily_entries').select('reflection, analysis').eq('user_id', getUserKey(username)).eq('date', dateKey).single();
         if (data) {
             localStorage.setItem(localRefKey, data.reflection || '');
             if (data.analysis) localStorage.setItem(localAnaKey, JSON.stringify(data.analysis));
             return { reflection: data.reflection || '', analysis: data.analysis };
         }
-      }
-  } catch (e) {
-      console.error("Storage: Error getting daily entry", e);
+    } catch(e) {}
   }
-
-  return { reflection: '', analysis: null };
+  return { reflection, analysis };
 };
 
 export const saveDailyEntry = async (username: string, reflection: string, analysis: AnalysisResponse | null): Promise<void> => {
-  const userKey = getUserKey(username);
-  const dateKey = new Date().toISOString().split('T')[0];
-  
-  try {
-      localStorage.setItem(`rafeeq_reflection_${username}`, reflection);
-      if (analysis) {
-        localStorage.setItem(`rafeeq_analysis_${username}`, JSON.stringify(analysis));
-      } else {
-        localStorage.removeItem(`rafeeq_analysis_${username}`);
-      }
+  localStorage.setItem(`rafeeq_reflection_${username}`, reflection);
+  if (analysis) localStorage.setItem(`rafeeq_analysis_${username}`, JSON.stringify(analysis));
 
-      if (supabase) {
-        await supabase.from('daily_entries').upsert({
-            user_id: userKey,
-            date: dateKey,
-            reflection: reflection,
-            analysis: analysis
-        }, { onConflict: 'user_id, date' });
-      }
-  } catch (e) {
-      console.error("Storage: Error saving daily entry", e);
+  if (supabase) {
+    await supabase.from('daily_entries').upsert({
+        user_id: getUserKey(username),
+        date: new Date().toISOString().split('T')[0],
+        reflection: reflection,
+        analysis: analysis
+    });
   }
 };

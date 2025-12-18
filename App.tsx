@@ -39,20 +39,17 @@ export default function App() {
   const [schedule, setSchedule] = useState<WeeklySchedule>(INITIAL_SCHEDULE);
   const [dailyReflection, setDailyReflection] = useState('');
   
-  // Structured Lesson Inputs
   const [subject, setSubject] = useState('');
   const [lesson, setLesson] = useState('');
   const [solved, setSolved] = useState(false);
-  const [hours, setHours] = useState(1);
+  const [hours, setHours] = useState<number>(1);
 
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
-  
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [stats, setStats] = useState<UserStats>(DEFAULT_STATS);
 
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
-  const [isDataLoaded, setIsDataLoaded] = useState(false); 
   const [error, setError] = useState<string | null>(null);
 
   const [isListening, setIsListening] = useState(false);
@@ -60,16 +57,13 @@ export default function App() {
 
   useEffect(() => {
     const savedUser = storage.getLastUser();
-    if (savedUser) {
-        setCurrentUser(savedUser);
-    }
+    if (savedUser) setCurrentUser(savedUser);
     setInitializing(false);
   }, []);
 
   useEffect(() => {
     const loadData = async () => {
       if (!currentUser) return;
-      setIsDataLoaded(false);
       try {
         resilientDB.syncWithCloud(currentUser.name);
         const [savedSchedule, savedEntry, savedPrefs, savedStats] = await Promise.all([
@@ -81,16 +75,20 @@ export default function App() {
         if (savedSchedule) setSchedule(savedSchedule);
         if (savedEntry) {
           setDailyReflection(savedEntry.reflection);
-          if (savedEntry.analysis && savedEntry.analysis.summary) {
-            setAnalysis(savedEntry.analysis);
-          }
+          if (savedEntry.analysis?.summary) setAnalysis(savedEntry.analysis);
         }
         if (savedPrefs) setPreferences(savedPrefs);
-        if (savedStats) setStats(savedStats);
+        
+        // حماية البيانات الرقمية من NaN
+        setStats({
+            xp: Number(savedStats?.xp) || 0,
+            level: Number(savedStats?.level) || 1,
+            streak: Number(savedStats?.streak) || 0,
+            lastLoginDate: savedStats?.lastLoginDate || new Date().toISOString().split('T')[0],
+            totalEntries: Number(savedStats?.totalEntries) || 0
+        });
       } catch (e) {
-        console.error("Error loading user data", e);
-      } finally {
-        setIsDataLoaded(true);
+        console.error("Load error", e);
       }
     };
     if (currentUser) loadData();
@@ -112,7 +110,6 @@ export default function App() {
       setSchedule(INITIAL_SCHEDULE);
       setDailyReflection('');
       setAnalysis(null);
-      setIsDataLoaded(false);
   };
 
   const handleUpdatePreferences = (newPrefs: UserPreferences) => {
@@ -122,15 +119,11 @@ export default function App() {
 
   const handleFeedback = async (contentType: any, type: 'like' | 'dislike') => {
       if (!currentUser) return;
-      const tags: string[] = [];
-      if (contentType === 'religious') tags.push('religious', 'quran');
-      if (contentType === 'scientific') tags.push('scientific', 'psych');
-      if (contentType === 'philosophical' || contentType === 'wisdom') tags.push('philosophical', 'wisdom');
       const result = await memoryStore.recordInteraction(
           currentUser.name,
           'quote', 
-          `User feedback on ${contentType} content`,
-          tags,
+          `Feedback on ${contentType}`,
+          [contentType],
           type,
           stats,
           preferences.interestProfile
@@ -141,48 +134,37 @@ export default function App() {
       await storage.saveUserPreferences(currentUser.name, { ...preferences, interestProfile: result.newProfile });
   };
 
-  const getNextDayName = () => {
-    const date = new Date();
-    date.setDate(date.getDate() + 1);
-    return new Intl.DateTimeFormat('ar-EG', { weekday: 'long' }).format(date);
-  };
-
   const handleAnalyze = async () => {
-    if (!dailyReflection.trim() || !subject.trim() || !lesson.trim() || !currentUser) return;
+    if (!subject.trim() || !lesson.trim() || !currentUser) return;
     setLoading(true);
     setError(null);
     try {
-      const lessonData = { subject, lesson, solved, hours };
+      const safeHours = Number(hours);
+      const lessonData = { 
+          subject, 
+          lesson, 
+          solved, 
+          hours: isNaN(safeHours) ? 1 : Math.max(1, safeHours) 
+      };
       const result = await smartAnalyzeDay(
           dailyReflection, 
           schedule, 
-          getNextDayName(), 
+          new Intl.DateTimeFormat('ar-EG', { weekday: 'long' }).format(new Date(Date.now() + 86400000)), 
           currentUser.grade,
           lessonData,
           preferences, 
           stats 
       );
-      if (result && result.summary) {
+      if (result?.summary) {
         setAnalysis(result);
-        const memoryResult = await memoryStore.recordInteraction(
-          currentUser.name,
-          'analysis',
-          `${subject}: ${lesson} - ${dailyReflection.substring(0, 30)}...`,
-          ['daily_journal', 'analysis', subject],
-          null, 
-          stats,
-          preferences.interestProfile
-        );
-        setStats(memoryResult.newStats);
-        await storage.saveUserStats(currentUser.name, memoryResult.newStats);
+        const mem = await memoryStore.recordInteraction(currentUser.name, 'analysis', `${subject}: ${lesson}`, ['analysis', subject], null, stats, preferences.interestProfile);
+        setStats(mem.newStats);
+        await storage.saveUserStats(currentUser.name, mem.newStats);
         await storage.saveDailyEntry(currentUser.name, dailyReflection, result);
         setCurrentView('report');
-      } else {
-          throw new Error("Invalid AI response format");
       }
     } catch (err: any) {
-      console.error("Error:", err);
-      setError("حدث خطأ في التحليل. تأكد من جودة الاتصال بالإنترنت.");
+      setError("نواجه ضغطاً في الاتصال. تم تفعيل وضع الطوارئ الذكي.");
     } finally {
       setLoading(false);
     }
@@ -193,27 +175,15 @@ export default function App() {
       if (recognitionRef.current) recognitionRef.current.stop();
       setIsListening(false);
     } else {
-      if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        alert("المتصفح لا يدعم تحويل الصوت لنص.");
-        return;
-      }
       const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'ar-EG';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.onstart = () => setIsListening(true);
-      recognition.onresult = (event: any) => {
-        let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-        }
-        if (finalTranscript) setDailyReflection(prev => prev + ' ' + finalTranscript);
-      };
-      recognition.onerror = () => setIsListening(false);
-      recognition.onend = () => setIsListening(false);
-      recognitionRef.current = recognition;
-      recognition.start();
+      if (!SpeechRecognition) return alert("المتصفح لا يدعم الصوت.");
+      const rec = new SpeechRecognition();
+      rec.lang = 'ar-EG';
+      rec.onresult = (e: any) => setDailyReflection(prev => prev + ' ' + e.results[0][0].transcript);
+      rec.onend = () => setIsListening(false);
+      recognitionRef.current = rec;
+      rec.start();
+      setIsListening(true);
     }
   };
 
@@ -235,8 +205,8 @@ export default function App() {
     <div className={`min-h-screen flex font-sans selection:bg-gold-500/30 selection:text-gold-200 ${preferences.theme === 'high-contrast' ? 'text-white' : 'text-slate-200'}`}>
       <aside className={`fixed inset-y-0 right-0 z-50 w-72 backdrop-blur-xl border-l border-white/5 transform transition-transform duration-500 lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'} ${preferences.theme === 'high-contrast' ? 'bg-black border-white' : 'bg-midnight/80'} flex flex-col h-full`}>
         <div className="p-8 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3 group cursor-pointer">
-                <div className="w-12 h-12 bg-gradient-to-br from-gold-500/10 to-gold-700/10 rounded-xl flex items-center justify-center border border-gold-500/20 shadow-lg shadow-gold-500/10 group-hover:scale-110 transition-transform duration-300">
+            <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-gold-500/10 rounded-xl flex items-center justify-center border border-gold-500/20 shadow-lg group-hover:scale-110 transition-all">
                     <Logo className="w-8 h-8" />
                 </div>
                 <div>
@@ -244,20 +214,20 @@ export default function App() {
                     <span className="text-gold-500 text-[10px] font-medium tracking-widest uppercase block">الملاح الواعي</span>
                 </div>
             </div>
-            <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden text-slate-400 hover:text-white transition-colors"><X className="w-6 h-6" /></button>
+            <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden text-slate-400 hover:text-white"><X className="w-6 h-6" /></button>
         </div>
         <nav className="px-6 space-y-2 mt-2 flex-1 overflow-y-auto no-scrollbar">
             {NAV_ITEMS.map(item => (
                 <button
                     key={item.id}
                     onClick={() => { setCurrentView(item.id as View); setIsMobileMenuOpen(false); }}
-                    className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-300 group ${
+                    className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all ${
                         currentView === item.id 
                         ? 'bg-gradient-to-r from-gold-500/10 to-transparent text-gold-400 font-bold border-r-2 border-gold-500' 
                         : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 border-r-2 border-transparent'
                     }`}
                 >
-                    <item.icon className={`w-5 h-5 transition-transform duration-300 ${currentView === item.id ? 'scale-110' : 'group-hover:scale-110'}`} />
+                    <item.icon className="w-5 h-5" />
                     {item.label}
                 </button>
             ))}
@@ -291,19 +261,29 @@ export default function App() {
                     <div className="glass-panel p-8 rounded-[2rem] space-y-8 bg-void/50 border border-white/5">
                         <div className="grid md:grid-cols-2 gap-6">
                             <div className="space-y-2">
-                                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-2"><Book className="w-3 h-3" /> اسم المادة</label>
+                                <label className="text-[10px] uppercase font-bold text-slate-500 flex items-center gap-2"><Book className="w-3 h-3" /> اسم المادة</label>
                                 <input type="text" value={subject} onChange={e => setSubject(e.target.value)} placeholder="مثال: فيزياء" className="glass-input w-full py-3" />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-2"><Sparkles className="w-3 h-3" /> اسم الدرس</label>
+                                <label className="text-[10px] uppercase font-bold text-slate-500 flex items-center gap-2"><Sparkles className="w-3 h-3" /> اسم الدرس</label>
                                 <input type="text" value={lesson} onChange={e => setLesson(e.target.value)} placeholder="مثال: الحركة الموجية" className="glass-input w-full py-3" />
                             </div>
                         </div>
 
                         <div className="grid md:grid-cols-2 gap-6 items-end">
                             <div className="space-y-2">
-                                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-2"><Clock className="w-3 h-3" /> ساعات المذاكرة</label>
-                                <input type="number" min="1" max="20" value={hours} onChange={e => setHours(parseInt(e.target.value))} className="glass-input w-full py-3" />
+                                <label className="text-[10px] uppercase font-bold text-slate-500 flex items-center gap-2"><Clock className="w-3 h-3" /> ساعات المذاكرة</label>
+                                <input 
+                                    type="number" 
+                                    min="1" 
+                                    max="20" 
+                                    value={isNaN(hours) ? "" : hours} 
+                                    onChange={e => {
+                                        const val = parseInt(e.target.value);
+                                        setHours(isNaN(val) ? 0 : val);
+                                    }} 
+                                    className="glass-input w-full py-3" 
+                                />
                             </div>
                             <div className="flex items-center gap-4 bg-white/5 p-4 rounded-xl border border-white/5">
                                 <input type="checkbox" id="solved" checked={solved} onChange={e => setSolved(e.target.checked)} className="w-5 h-5 accent-gold-500" />
@@ -320,10 +300,10 @@ export default function App() {
                         <div className="flex justify-center">
                             <button onClick={handleAnalyze} disabled={loading || !subject || !lesson} className="btn-gold w-full md:w-auto px-16 py-4 flex items-center gap-3">
                                 {loading ? <Loader2 className="animate-spin" /> : <Send />}
-                                {loading ? 'جاري البحث والتحليل...' : 'بدء التحليل الذكي'}
+                                {loading ? 'جاري التحليل...' : 'بدء التحليل الذكي'}
                             </button>
                         </div>
-                        {error && <p className="text-red-400 text-sm text-center animate-pulse">{error}</p>}
+                        {error && <p className="text-amber-400 text-sm text-center animate-pulse mt-4">{error}</p>}
                     </div>
                 </div>
             )}
