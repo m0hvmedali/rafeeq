@@ -1,21 +1,21 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { WeeklySchedule, AnalysisResponse, UserProfile, GradeLevel, UserPreferences, UserStats } from './types';
-import ScheduleManager from './components/ScheduleManager';
-import AnalysisDisplay from './components/AnalysisDisplay';
-import Dashboard from './components/Dashboard';
-import ResourcesLibrary from './components/ResourcesLibrary';
-import LoginScreen from './components/LoginScreen';
-import FocusMode from './components/FocusMode';
-import VoiceRecap from './components/VoiceRecap';
-import SettingsPanel from './components/SettingsPanel';
-import { Logo } from './components/Logo';
-import { smartAnalyzeDay } from './services/orchestrator';
-import * as storage from './services/storage';
-import * as memoryStore from './services/memoryStore'; 
-import * as resilientDB from './services/resilientDB'; 
-import { updateStatsOnEntry, DEFAULT_PREFERENCES, DEFAULT_STATS } from './services/recommendationEngine';
-import { supabase } from './lib/supabase';
+import { WeeklySchedule, AnalysisResponse, UserProfile, GradeLevel, UserPreferences, UserStats } from './types.ts';
+import ScheduleManager from './components/ScheduleManager.tsx';
+import AnalysisDisplay from './components/AnalysisDisplay.tsx';
+import Dashboard from './components/Dashboard.tsx';
+import ResourcesLibrary from './components/ResourcesLibrary.tsx';
+import LoginScreen from './components/LoginScreen.tsx';
+import FocusMode from './components/FocusMode.tsx';
+import VoiceRecap from './components/VoiceRecap.tsx';
+import SettingsPanel from './components/SettingsPanel.tsx';
+import { Logo } from './components/Logo.tsx';
+import { smartAnalyzeDay } from './services/orchestrator.ts';
+import * as storage from './services/storage.ts';
+import * as memoryStore from './services/memoryStore.ts'; 
+import * as resilientDB from './services/resilientDB.ts'; 
+import { updateStatsOnEntry, DEFAULT_PREFERENCES, DEFAULT_STATS } from './services/recommendationEngine.ts';
+import { supabase } from './lib/supabase.ts';
 import { Sparkles, LayoutDashboard, Calendar, PenTool, BookOpen, Settings, Cloud, CloudOff, Menu, X, Loader2, Send, Mic, MicOff, Brain, Mic2 } from 'lucide-react';
 import './index.css';
 
@@ -31,8 +31,7 @@ const INITIAL_SCHEDULE: WeeklySchedule = {
 
 type View = 'dashboard' | 'daily' | 'report' | 'planner' | 'resources' | 'focus' | 'voice-tutor' | 'settings';
 
-function App() {
-  // --- STATE ---
+export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -41,7 +40,6 @@ function App() {
   const [dailyReflection, setDailyReflection] = useState('');
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   
-  // NEW: Preferences & Stats State
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [stats, setStats] = useState<UserStats>(DEFAULT_STATS);
 
@@ -50,11 +48,9 @@ function App() {
   const [isDataLoaded, setIsDataLoaded] = useState(false); 
   const [error, setError] = useState<string | null>(null);
 
-  // Voice Input State
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  // --- AUTH CHECK ---
   useEffect(() => {
     const savedUser = storage.getLastUser();
     if (savedUser) {
@@ -63,7 +59,6 @@ function App() {
     setInitializing(false);
   }, []);
 
-  // --- DATA LOADING & ACCESSIBILITY ---
   useEffect(() => {
     const loadData = async () => {
       if (!currentUser) return;
@@ -71,7 +66,6 @@ function App() {
       setIsDataLoaded(false);
 
       try {
-        // Sync Resilient DB from Cloud (Background)
         resilientDB.syncWithCloud(currentUser.name);
 
         const [savedSchedule, savedEntry, savedPrefs, savedStats] = await Promise.all([
@@ -84,7 +78,9 @@ function App() {
         if (savedSchedule) setSchedule(savedSchedule);
         if (savedEntry) {
           setDailyReflection(savedEntry.reflection);
-          setAnalysis(savedEntry.analysis);
+          if (savedEntry.analysis && savedEntry.analysis.summary) {
+            setAnalysis(savedEntry.analysis);
+          }
         }
         if (savedPrefs) setPreferences(savedPrefs);
         if (savedStats) setStats(savedStats);
@@ -101,13 +97,11 @@ function App() {
     }
   }, [currentUser]);
 
-  // Apply Theme & Font Size
   useEffect(() => {
       document.body.className = `font-sans antialiased overflow-x-hidden ${preferences.theme === 'high-contrast' ? 'bg-black text-white contrast-125' : 'bg-midnight text-slate-200'}`;
       document.documentElement.style.fontSize = preferences.fontSize === 'xl' ? '18px' : preferences.fontSize === 'large' ? '17px' : '16px';
   }, [preferences.theme, preferences.fontSize]);
 
-  // --- PERSISTENCE ---
   useEffect(() => {
     if (currentUser && isDataLoaded) {
       const handler = setTimeout(() => {
@@ -117,7 +111,6 @@ function App() {
     }
   }, [dailyReflection, analysis, currentUser, isDataLoaded]);
 
-  // --- LOGIC ---
   const handleLogin = (profile: UserProfile) => {
       storage.saveUserProfile(profile);
       setCurrentUser(profile);
@@ -137,24 +130,17 @@ function App() {
       if (currentUser) storage.saveUserPreferences(currentUser.name, newPrefs);
   };
 
-  /**
-   * INTELLIGENT FEEDBACK LOOP
-   * This function is triggered when a user likes/dislikes content.
-   * It updates the memory.json via memoryStore and rewards XP.
-   */
   const handleFeedback = async (contentType: any, type: 'like' | 'dislike') => {
       if (!currentUser) return;
 
-      // Map content type to tags
       const tags: string[] = [];
       if (contentType === 'religious') tags.push('religious', 'quran');
       if (contentType === 'scientific') tags.push('scientific', 'psych');
       if (contentType === 'philosophical' || contentType === 'wisdom') tags.push('philosophical', 'wisdom');
 
-      // Update Memory & Intelligence
       const result = await memoryStore.recordInteraction(
           currentUser.name,
-          'quote', // Or 'analysis_part'
+          'quote', 
           `User feedback on ${contentType} content`,
           tags,
           type,
@@ -162,11 +148,9 @@ function App() {
           preferences.interestProfile
       );
 
-      // Update State with new learned data
       setStats(result.newStats);
       setPreferences(prev => ({ ...prev, interestProfile: result.newProfile }));
       
-      // Persist updates
       await storage.saveUserStats(currentUser.name, result.newStats);
       await storage.saveUserPreferences(currentUser.name, { ...preferences, interestProfile: result.newProfile });
 
@@ -175,7 +159,6 @@ function App() {
       }
   };
 
-  // --- FOCUS SESSION COMPLETION ---
   const handleFocusComplete = async () => {
     if (!currentUser) return;
 
@@ -195,7 +178,6 @@ function App() {
     alert(`👏 رائع! أكملت جلسة تركيز وحصلت على ${result.xpGained} نقطة XP`);
   };
 
-  // --- VOICE RECAP COMPLETION ---
   const handleVoiceRecapComplete = async (score: number) => {
     if (!currentUser) return;
 
@@ -213,7 +195,6 @@ function App() {
     await storage.saveUserStats(currentUser.name, result.newStats);
   };
 
-  // --- TASK COMPLETION ---
   const handleTaskComplete = async (taskName: string) => {
     if (!currentUser) return;
 
@@ -244,39 +225,39 @@ function App() {
     setError(null);
     
     try {
-      // 1. Smart Analysis with Context (Using Orchestrator)
       const result = await smartAnalyzeDay(
           dailyReflection, 
           schedule, 
           getNextDayName(), 
           currentUser.grade,
-          preferences, // Pass context
-          stats // Pass stats context
+          preferences, 
+          stats 
       );
-      setAnalysis(result);
-
-      // 2. Memory Record & XP Update
-      const memoryResult = await memoryStore.recordInteraction(
-        currentUser.name,
-        'analysis',
-        dailyReflection.substring(0, 50) + "...",
-        ['daily_journal', 'analysis'],
-        null, 
-        stats,
-        preferences.interestProfile
-      );
-
-      // 3. Update local state
-      setStats(memoryResult.newStats);
-      await storage.saveUserStats(currentUser.name, memoryResult.newStats);
-
-      // 4. Save Entry Data
-      await storage.saveDailyEntry(currentUser.name, dailyReflection, result);
       
-      setCurrentView('report');
-      
-      if (memoryResult.newStats.level > stats.level) {
-          alert(`🚀 مبروك! إصرارك رفع مستواك إلى ${memoryResult.newStats.level}`);
+      if (result && result.summary) {
+        setAnalysis(result);
+
+        const memoryResult = await memoryStore.recordInteraction(
+          currentUser.name,
+          'analysis',
+          dailyReflection.substring(0, 50) + "...",
+          ['daily_journal', 'analysis'],
+          null, 
+          stats,
+          preferences.interestProfile
+        );
+
+        setStats(memoryResult.newStats);
+        await storage.saveUserStats(currentUser.name, memoryResult.newStats);
+        await storage.saveDailyEntry(currentUser.name, dailyReflection, result);
+        
+        setCurrentView('report');
+        
+        if (memoryResult.newStats.level > stats.level) {
+            alert(`🚀 مبروك! إصرارك رفع مستواك إلى ${memoryResult.newStats.level}`);
+        }
+      } else {
+          throw new Error("Invalid AI response format");
       }
 
     } catch (err: any) {
@@ -287,7 +268,6 @@ function App() {
     }
   };
 
-  // --- VOICE INPUT LOGIC ---
   const toggleVoiceInput = () => {
     if (isListening) {
       if (recognitionRef.current) recognitionRef.current.stop();
@@ -321,7 +301,6 @@ function App() {
 
   if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
 
-  // --- NAVIGATION CONFIG ---
   const NAV_ITEMS = [
     { id: 'dashboard', label: 'الرئيسية', icon: LayoutDashboard },
     { id: 'daily', label: 'إدخال اليوم', icon: PenTool },
@@ -336,7 +315,6 @@ function App() {
   return (
     <div className={`min-h-screen flex font-sans selection:bg-gold-500/30 selection:text-gold-200 ${preferences.theme === 'high-contrast' ? 'text-white' : 'text-slate-200'}`}>
       
-      {/* Sidebar - Updated with Flexbox for scrolling */}
       <aside className={`fixed inset-y-0 right-0 z-50 w-72 backdrop-blur-xl border-l border-white/5 transform transition-transform duration-500 lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'} ${preferences.theme === 'high-contrast' ? 'bg-black border-white' : 'bg-midnight/80'} flex flex-col h-full`}>
         <div className="p-8 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3 group cursor-pointer">
@@ -378,7 +356,6 @@ function App() {
         </div>
       </aside>
 
-      {/* Main Content */}
       <div className="flex-1 lg:mr-72 relative">
         <header className="lg:hidden p-4 flex items-center justify-between bg-midnight/80 backdrop-blur border-b border-white/5 sticky top-0 z-40">
             <div className="flex items-center gap-2">
@@ -395,7 +372,7 @@ function App() {
                     onNavigate={(v) => setCurrentView(v as View)} 
                     stats={stats} 
                     onFeedback={handleFeedback}
-                    preferences={preferences} // Pass preferences to Dashboard
+                    preferences={preferences} 
                 />
             )}
 
@@ -492,5 +469,3 @@ function App() {
     </div>
   );
 }
-
-export default App;

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { AnalysisResponse, MotivationalMessage, UserStats, UserPreferences } from '../types';
-import { getFreshInspiration } from '../services/geminiService';
+import { AnalysisResponse, MotivationalMessage, UserStats, UserPreferences } from '../types.ts';
+import { getFreshInspiration } from '../services/geminiService.ts';
 import { Activity, Battery, Moon, Brain, ChevronLeft, Sparkles, Lightbulb, Quote, RefreshCw, Star, ThumbsUp, ThumbsDown } from 'lucide-react';
 
 interface DashboardProps {
@@ -13,22 +13,20 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats, onFeedback, preferences }) => {
-    const balance = lastAnalysis?.balanceScore || 75;
-    const stress = lastAnalysis?.summary.stressLevel || 'low';
+    const balance = lastAnalysis?.balanceScore ?? 75;
+    const stress = lastAnalysis?.summary?.stressLevel || 'low';
+    const effortType = lastAnalysis?.summary?.effortType || 'متزن';
     
-    // State for the dynamic daily quote
     const [inspiration, setInspiration] = useState<MotivationalMessage | null>(null);
     const [loadingQuote, setLoadingQuote] = useState(true);
     const [quoteFeedback, setQuoteFeedback] = useState<'like' | 'dislike' | null>(null);
 
-    // Fetch inspiration with caching (1 Hour Duration)
     useEffect(() => {
         const fetchQuote = async () => {
-            const CACHE_KEY = 'rafeeq_quote_v3'; // Version 3 key
+            const CACHE_KEY = 'rafeeq_quote_v3'; 
             const ONE_HOUR = 60 * 60 * 1000;
 
             try {
-                // 1. Try Cache
                 const cachedRaw = localStorage.getItem(CACHE_KEY);
                 if (cachedRaw) {
                     const cached = JSON.parse(cachedRaw);
@@ -45,10 +43,8 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats, 
                 console.warn("Cache read error, fetching fresh quote", e);
             }
 
-            // 2. Fetch Fresh with Personalization
             setLoadingQuote(true);
             try {
-                // Pass the interest profile to get personalized quotes
                 const freshQuote = await getFreshInspiration(preferences?.interestProfile);
                 setInspiration(freshQuote);
                 localStorage.setItem(CACHE_KEY, JSON.stringify({
@@ -69,17 +65,16 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats, 
         };
 
         fetchQuote();
-    }, [preferences]); // Re-fetch if preferences deeply change (though practically this runs on mount/reload)
+    }, [preferences]);
 
     const handleQuoteFeedback = (type: 'like' | 'dislike') => {
-        if (quoteFeedback || !inspiration) return; // Prevent double feedback
+        if (quoteFeedback || !inspiration) return; 
         setQuoteFeedback(type);
         onFeedback(inspiration.category || 'wisdom', type);
     };
     
     return (
         <div className="space-y-10 animate-fade-in">
-            {/* Header + Gamification Status */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
                 <div>
                     <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-100 to-slate-400 mb-2">
@@ -94,9 +89,9 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats, 
                              <Star className="w-4 h-4" />
                         </div>
                         <div>
-                             <div className="text-[10px] text-slate-500 uppercase font-bold">المستوى {stats.level}</div>
+                             <div className="text-[10px] text-slate-500 uppercase font-bold">المستوى {Number(stats.level)}</div>
                              <div className="w-24 h-1.5 bg-slate-800 rounded-full mt-1">
-                                 <div className="h-full bg-gold-500 rounded-full" style={{ width: `${(stats.xp % 100)}%` }}></div>
+                                 <div className="h-full bg-gold-500 rounded-full" style={{ width: `${(Number(stats.xp) % 100)}%` }}></div>
                              </div>
                         </div>
                      </div>
@@ -112,7 +107,6 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats, 
                 </div>
             </div>
 
-            {/* Wisdom / Tip of the Day - Dynamic Section */}
             <div className="glass-panel p-6 rounded-[24px] border border-gold-500/20 bg-gradient-to-r from-gold-900/10 to-transparent relative overflow-hidden transition-all hover:border-gold-500/40 min-h-[160px] flex items-center group">
                 <div className="absolute top-0 left-0 p-4 opacity-5">
                     <Quote className="w-24 h-24 text-gold-500" />
@@ -135,21 +129,19 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats, 
                                 </h3>
                                 {inspiration.category && (
                                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-slate-400 border border-white/5">
-                                        {inspiration.category}
+                                        {String(inspiration.category)}
                                     </span>
                                 )}
                             </div>
-                            <p className="text-xl md:text-2xl font-serif text-slate-200 leading-relaxed">"{inspiration.text}"</p>
+                            <p className="text-xl md:text-2xl font-serif text-slate-200 leading-relaxed">"{String(inspiration.text)}"</p>
                             <div className="flex justify-between items-center mt-2">
-                                <p className="text-sm text-slate-500 font-medium">— {inspiration.source}</p>
+                                <p className="text-sm text-slate-500 font-medium">— {String(inspiration.source)}</p>
                                 
-                                {/* FEEDBACK BUTTONS */}
                                 <div className="flex gap-2">
                                     <button 
                                         onClick={() => handleQuoteFeedback('like')} 
                                         disabled={!!quoteFeedback}
                                         className={`p-1.5 rounded-full transition-all ${quoteFeedback === 'like' ? 'text-green-400 bg-green-400/10' : 'text-slate-600 hover:text-green-400 hover:bg-white/5'}`}
-                                        title="محتوى ملهم"
                                     >
                                         <ThumbsUp className={`w-4 h-4 ${quoteFeedback === 'like' ? 'fill-current' : ''}`} />
                                     </button>
@@ -157,7 +149,6 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats, 
                                         onClick={() => handleQuoteFeedback('dislike')} 
                                         disabled={!!quoteFeedback}
                                         className={`p-1.5 rounded-full transition-all ${quoteFeedback === 'dislike' ? 'text-red-400 bg-red-400/10' : 'text-slate-600 hover:text-red-400 hover:bg-white/5'}`}
-                                        title="أقل من المتوقع"
                                     >
                                         <ThumbsDown className={`w-4 h-4 ${quoteFeedback === 'dislike' ? 'fill-current' : ''}`} />
                                     </button>
@@ -168,49 +159,38 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats, 
                 ) : null}
             </div>
 
-            {/* Stats Grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
-                {/* Balance Card */}
                 <div className="glass-panel p-6 rounded-[24px] border-t border-t-emerald-500/50 relative overflow-hidden group">
-                    <div className="absolute inset-0 bg-emerald-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                     <div className="relative z-10">
                         <div className="text-emerald-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
                             <Activity className="w-4 h-4" /> مؤشر التوازن
                         </div>
-                        <div className="text-3xl font-bold text-white mb-4">{balance}%</div>
+                        <div className="text-3xl font-bold text-white mb-4">{Number(balance)}%</div>
                         <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                            <div className="bg-emerald-500 h-full rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(16,185,129,0.5)]" style={{ width: `${balance}%` }}></div>
+                            <div className="bg-emerald-500 h-full rounded-full transition-all duration-1000" style={{ width: `${Number(balance)}%` }}></div>
                         </div>
                     </div>
                 </div>
 
-                {/* Mental State */}
                 <div className="glass-panel p-6 rounded-[24px] border-t border-t-blue-500/50 relative overflow-hidden group">
-                    <div className="absolute inset-0 bg-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                     <div className="relative z-10">
                         <div className="text-blue-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
                             <Brain className="w-4 h-4" /> الحالة الذهنية
                         </div>
-                        <div className="text-2xl font-bold text-white capitalize">{lastAnalysis?.summary.effortType || 'متزن'}</div>
-                        <div className="text-[10px] text-slate-500 mt-2">بناءً على آخر تقييم</div>
+                        <div className="text-2xl font-bold text-white capitalize">{String(effortType)}</div>
                     </div>
                 </div>
 
-                {/* Sleep */}
                 <div className="glass-panel p-6 rounded-[24px] border-t border-t-purple-500/50 relative overflow-hidden group">
-                    <div className="absolute inset-0 bg-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                     <div className="relative z-10">
                         <div className="text-purple-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
                             <Moon className="w-4 h-4" /> النوم المثالي
                         </div>
                         <div className="text-2xl font-bold text-white">8.5 <span className="text-sm font-normal text-slate-500">ساعة</span></div>
-                        <div className="text-[10px] text-slate-500 mt-2">توصيات AAP</div>
                     </div>
                 </div>
 
-                {/* Stress */}
                 <div className="glass-panel p-6 rounded-[24px] border-t border-t-gold-500/50 relative overflow-hidden group">
-                    <div className="absolute inset-0 bg-gold-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                     <div className="relative z-10">
                         <div className="text-gold-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
                             <Battery className="w-4 h-4" /> مؤشر الضغط
@@ -218,32 +198,29 @@ const Dashboard: React.FC<DashboardProps> = ({ lastAnalysis, onNavigate, stats, 
                         <div className={`text-2xl font-bold capitalize ${stress === 'high' ? 'text-red-400' : 'text-emerald-400'}`}>
                             {stress === 'low' ? 'منخفض' : stress === 'medium' ? 'متوسط' : 'مرتفع'}
                         </div>
-                        <div className="text-[10px] text-slate-500 mt-2">يتطلب مراقبة مستمرة</div>
                     </div>
                 </div>
             </div>
 
-            {lastAnalysis ? (
+            {lastAnalysis && lastAnalysis.summary && (
                  <div className="glass-panel p-8 md:p-10 rounded-[30px] border border-white/5 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-gold-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-                    
                     <div className="relative z-10">
                         <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
                             <span className="w-2 h-2 bg-gold-500 rounded-full animate-pulse"></span>
                             ملخص التوجيه الأخير
                         </h3>
                         <p className="text-slate-300 leading-loose mb-8 font-serif text-lg max-w-3xl border-r-2 border-white/10 pr-6">
-                            {lastAnalysis.summary.analysisText.substring(0, 250)}...
+                            {String(lastAnalysis.summary.analysisText?.substring(0, 250) || 'لا يوجد نص متاح')}...
                         </p>
                         <button onClick={() => onNavigate('report')} className="text-gold-400 hover:text-gold-300 text-sm font-bold flex items-center gap-2 group">
                             قراءة التوجيه الكامل 
-                            <span className="bg-gold-500/10 p-1 rounded-full group-hover:bg-gold-500/20 transition-colors">
-                                <ChevronLeft className="w-4 h-4" />
-                            </span>
+                            <ChevronLeft className="w-4 h-4" />
                         </button>
                     </div>
                  </div>
-            ) : (
+            )}
+            
+            {!lastAnalysis && (
                 <div className="text-center py-16 border border-dashed border-slate-800 rounded-[30px] opacity-60">
                     <p className="text-slate-400 font-light">لا توجد بيانات تحليل لليوم بعد</p>
                 </div>
